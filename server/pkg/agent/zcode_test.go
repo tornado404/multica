@@ -135,7 +135,7 @@ func TestParseZcodeModelsEmptyConfig(t *testing.T) {
 func TestDiscoverZcodeModelsMissingConfig(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	models, err := discoverZcodeModels(ctx, "zcode")
+	models, err := discoverZcodeModels(ctx, Command{Path: "zcode"})
 	if err != nil {
 		t.Fatalf("discoverZcodeModels: unexpected error: %v", err)
 	}
