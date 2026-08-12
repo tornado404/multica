@@ -4,6 +4,7 @@ import codeartsLogo from "./codearts-logo.svg";
 import qwenLogo from "./qwen-logo.svg";
 import reasonixLogo from "./reasonix-logo.svg";
 import dimLogo from "./dim-logo.png";
+import zcodeLogo from "./zcode-logo.png";
 
 // Next.js exposes static imports as objects while Vite exposes URL strings.
 // Normalize both shapes here so shared provider logos work in web and desktop.
@@ -386,25 +387,13 @@ function ZeroClawLogo({ className }: { className: string }) {
   );
 }
 
-// Minimal placeholder until ZCode ships an official mark; currentColor keeps
-// it legible in both themes. Swap for a real asset when one exists, following
-// the DimLogo <img> pattern.
-function ZCodeLogo({ className }: { className: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M5 5h14" />
-      <path d="M19 19H5" />
-      <path d="M19 5L5 19" />
-    </svg>
-  );
+// ZCode (Z.ai) — official app icon extracted from the ZCode Desktop app bundle
+// (ZCode.app/Contents/Resources/icon.icns), rendered at 512px. Same data-URI
+// PNG approach as Antigravity/Trae/Hermes so the exact official artwork is used.
+const zcodeLogoSrc = staticAssetSrc(zcodeLogo);
+
+function ZcodeLogo({ className }: { className?: string }) {
+  return <img src={zcodeLogoSrc} alt="ZCode" className={className} />;
 }
 
 export function ProviderLogo({
@@ -472,7 +461,7 @@ export function ProviderLogo({
     case "zeroclaw":
       return <ZeroClawLogo className={className} />;
     case "zcode":
-      return <ZCodeLogo className={className} />;
+      return <ZcodeLogo className={className} />;
     default:
       return <Monitor className={className} />;
   }
