@@ -427,7 +427,7 @@ func New(agentType string, cfg Config) (Backend, error) {
 	case "zeroclaw":
 		return &zeroclawBackend{cfg: cfg}, nil
 	case "zcode":
-		return &zcodeBackend{cfg: cfg}, nil
+		return &zcodeStreamBackend{cfg: cfg}, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type: %q (supported: %s)", agentType, strings.Join(SupportedTypes, ", "))
 	}
@@ -474,7 +474,7 @@ var launchHeaders = map[string]string{
 	"dim":         "dim acp",
 	"mcode":       "mcode acp",
 	"zeroclaw":    "zeroclaw acp",
-	"zcode":       "zcode --prompt --json",
+	"zcode":       "zcode --prompt --stream-json",
 }
 
 // LaunchHeader returns the user-visible launch skeleton for agentType, or an
