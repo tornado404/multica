@@ -15,6 +15,14 @@ import (
 // so an older CLI simply cannot serve a task. The opencode entry is the one
 // exception and is explained at its line: that CLI works fine, it damages the
 // host it runs on.
+//
+// zcode is deliberately absent: zcode-app-cli ships a non-standard, drifting
+// version string (e.g. 3.7.5-11, 3.7.6-12, CLI 0.16.x) while its flag surface
+// is stable, so a parsed semver floor is an unreliable compatibility signal.
+// Instead zcode is capability-gated on its --help output: a build advertising
+// --stream-json takes the streaming path; otherwise one advertising --json
+// takes the summary path; a build advertising neither is rejected at Execute
+// time. See zcodeSupportsStreamJSON / zcodeSupportsJSONSummary.
 var MinVersions = map[string]string{
 	"antigravity": "1.1.10", // stream-json usage plus reliable headless --model selection
 	"claude":      "2.0.0",
