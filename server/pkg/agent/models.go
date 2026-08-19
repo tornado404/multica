@@ -252,11 +252,13 @@ func ListModels(ctx context.Context, providerType string, runtimeCmd Command) (C
 		// a model catalog. The configured MCode runtime owns the model choice.
 		return Catalog{Models: []Model{}}, nil
 	case "zcode":
-		// ZCode has no command-line model override; the model is fixed by
-		// ~/.zcode/cli/config.json (model.main). Read that config so the UI
-		// can display the configured catalog, even though selection is a
-		// no-op at turn time (see ModelSelectionSupported). Falls back to an
-		// empty list (manual entry) when the config is missing or unreadable.
+		// ZCode has no command-line model override flag, but its app-server
+		// protocol honours a per-session model ref in session/create (verified
+		// against zcode-app-cli 3.7.6-12: an explicit {providerId, modelId} is
+		// rejected with -32603 unless it resolves to ~/.zcode/cli/config.json's
+		// provider catalog). Read that config so the UI can offer exactly the
+		// models the runtime will accept. Falls back to an empty list (manual
+		// entry) when the config is missing or unreadable.
 		return cachedDiscovery(discoveryCacheKey(providerType, runtimeCmd), func() (Catalog, error) {
 			return discovered(discoverZcodeModels(ctx, runtimeCmd))
 		})
@@ -398,13 +400,6 @@ func ModelSelectionSupported(providerType string) bool {
 		// reads a model param, so the model comes from the ZeroClaw agent
 		// profile (`agents.<alias>.model_provider`) and nothing Multica sends
 		// can change it.
-		return false
-	case "zcode":
-		// ZCode has no command-line --model flag; the model is fixed by
-		// ~/.zcode/cli/config.json (`model.main`). Advertising a selectable
-		// picker would show a knob that silently does nothing, so opt out —
-		// the UI renders a disabled "Managed by runtime" field instead. The
-		// catalog returned by ListModels is display-only.
 		return false
 	default:
 		return true

@@ -56,7 +56,7 @@ If you do not pick a model, Multica uses the tool's own default. If the list is 
 
 QwenPaw and MiniMax Code are exceptions: they do not accept a model chosen from Multica, so the picker is inert and shows "Managed by runtime". Choose the model in the tool's own configuration instead. An empty model list is expected there and is not a sign that the runtime is offline.
 
-QwenPaw and ZCode are the exceptions: neither accepts a model chosen from Multica, so the picker is inert and shows "Managed by runtime". Choose the model in the tool's own configuration instead (QwenPaw config, or `~/.zcode/cli/config.json` `model.main` for ZCode). For ZCode, the model list is read from that config for display only; an empty list there is expected when the config is missing and is not a sign that the runtime is offline.
+For ZCode, the model list is read from `~/.zcode/cli/config.json` (the `provider` catalog); picking an entry sends that `provider/model` selector to the runtime's session. Leaving the model unset follows the config's `model.main`. An empty list is expected when the config is missing and is not a sign that the runtime is offline.
 
 DeepSeek Harness advertises its model catalog from the runtime itself (`dsh --profile multica --list-models`). Its model ids use the `provider/model` form (for example `deepseek-official/deepseek-chat`), so select the full id from the list.
 

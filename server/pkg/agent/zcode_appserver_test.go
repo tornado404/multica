@@ -823,6 +823,15 @@ func TestZcodeResolveModelUsesOptsFirst(t *testing.T) {
 	}
 }
 
+// TestZcodeModelSelectionSupported pins that the zcode picker is enabled: the
+// app-server protocol honours a per-session model ref in session/create
+// (verified against zcode-app-cli 3.7.6-12), so agent.model flows end-to-end.
+func TestZcodeModelSelectionSupported(t *testing.T) {
+	if !ModelSelectionSupported("zcode") {
+		t.Fatal("ModelSelectionSupported(zcode) should return true — session/create honours an explicit {providerId, modelId}")
+	}
+}
+
 func TestZcodeResultHelpers(t *testing.T) {
 	if got := zcodeResultSessionID(json.RawMessage(`{"session":{"sessionId":"sess_x"}}`)); got != "sess_x" {
 		t.Fatalf("session id = %q", got)

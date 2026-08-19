@@ -913,17 +913,19 @@ func zcodeStopSession(proc *zcodeClient, sessionID string) {
 
 // ── protocol response helpers ─────────────────────────────────────────────
 
-// resolveZcodeModel picks the model the app-server turn should run. zcode has
-// no CLI model override; the model is fixed by ~/.zcode/cli/config.json
-// (model.main), so the backend resolves it from there (via the shared catalog)
-// unless the daemon supplied an explicit provider/model.
+// resolveZcodeModel picks the model the app-server turn should run. The model
+// is a per-session parameter of session/create ({providerId, modelId}); there
+// is no CLI --model flag. opts.Model wins when it is a `provider/model`
+// selector (validated by the runtime against ~/.zcode/cli/config.json's
+// provider catalog — an unknown ref is rejected with -32603), otherwise the
+// config's model.main is resolved from the shared catalog as the default.
 func resolveZcodeModel(ctx context.Context, opts ExecOptions, execName string, logger *slog.Logger) (providerID, modelID string, err error) {
 	if opts.Model != "" {
 		if pid, mid, ok := strings.Cut(opts.Model, "/"); ok && pid != "" && mid != "" {
 			return pid, mid, nil
 		}
 	}
-	catalog, cerr := ListModels(ctx, "zcode", execName)
+	catalog, cerr := ListModels(ctx, "zcode", Command{Path: execName})
 	if cerr == nil {
 		for _, m := range catalog.Models {
 			if m.Default && m.ID != "" {
@@ -933,7 +935,7 @@ func resolveZcodeModel(ctx context.Context, opts ExecOptions, execName string, l
 			}
 		}
 	}
-	return "", "", fmt.Errorf("zcode: cannot resolve a model to use; set model.main in ~/.zcode/cli/config.json (the runtime has no CLI model override)")
+	return "", "", fmt.Errorf("zcode: cannot resolve a model to use; set model.main in ~/.zcode/cli/config.json or configure agent.model as provider/model")
 }
 
 // zcodeWorkspaceKey derives a stable workspace key for session/create from the

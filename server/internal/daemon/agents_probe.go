@@ -278,18 +278,19 @@ var probeAgentCLIs = func() map[string]AgentEntry {
 	if e, ok := probe("MULTICA_ZEROCLAW_PATH", "zeroclaw", ""); ok {
 		agents["zeroclaw"] = e
 	}
-	// ZCode (`zcode`) is the zcode-cli terminal client for the ZCode Desktop
-	// agent runtime (an unofficial community client integration — Multica
-	// detects any zcode on PATH; it is not published by Multica). It is driven
-	// headlessly via the native `zcode app-server` JSON-RPC session protocol
-	// (see server/pkg/agent/zcode_appserver.go). Discovery probes any zcode the
-	// same way as every other CLI (PATH lookup + --version), independent of the
-	// app-server capability.
-	// It takes no model env var: the model is fixed by ~/.zcode/cli/config.json
-	// (model.main), so ExecOptions.Model is ignored — see ModelSelectionSupported.
-	if e, ok := probe("MULTICA_ZCODE_PATH", "zcode", ""); ok {
-		agents["zcode"] = e
-	}
+			// ZCode (`zcode`) is the zcode-cli terminal client for the ZCode Desktop
+		// agent runtime (an unofficial community client integration — Multica
+		// detects any zcode on PATH; it is not published by Multica). It is driven
+		// headlessly via the native `zcode app-server` JSON-RPC session protocol
+		// (see server/pkg/agent/zcode_appserver.go). Discovery probes any zcode the
+		// same way as every other CLI (PATH lookup + --version), independent of the
+		// app-server capability. The CLI has no --model flag, but the backend
+		// passes the model per session/create, so MULTICA_ZCODE_MODEL seeds the
+		// daemon-wide default (a `provider/model` selector from
+		// ~/.zcode/cli/config.json's catalog).
+		if e, ok := probe("MULTICA_ZCODE_PATH", "zcode", "MULTICA_ZCODE_MODEL"); ok {
+			agents["zcode"] = e
+		}
 	return agents
 }
 
