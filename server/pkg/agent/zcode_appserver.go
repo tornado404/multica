@@ -128,7 +128,7 @@ func newZcodeClient(cfg Config, execName, cwd string) (*zcodeClient, error) {
 		return nil, fmt.Errorf("zcode executable not found at %q: %w", execName, err)
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(runCtx, execName, "app-server")
+	cmd := cfg.commandAt(execName).exec(runCtx, "app-server")
 	hideAgentWindow(cmd)
 	// Run app-server in its own process group so a stuck/cancelled run can be
 	// torn down tree-wide without touching the daemon. Mirrors codex.
