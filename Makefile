@@ -143,6 +143,15 @@ selfhost-stop: ## Stop the self-hosted Docker Compose stack
 	$(COMPOSE) -f docker-compose.selfhost.yml down
 	@echo "✓ All services stopped."
 
+deploy-selfhost: ## Build fork images on this Mac (amd64) and deploy to the cloud self-host server
+	@if [ -z "$${MULTICA_SSH_HOST:-}" ]; then \
+		echo "MULTICA_SSH_HOST (ssh alias) is required; MULTICA_REMOTE_DIR defaults to ~/multica."; \
+		echo "Example: make deploy-selfhost MULTICA_SSH_HOST=my-server ARGS='--init'"; \
+		echo "ARGS forwards flags to scripts/deploy-selfhost.sh (--init --backup --rollback --dry-run ...)."; \
+		exit 1; \
+	fi
+	bash scripts/deploy-selfhost.sh $${ARGS:-}
+
 # ---------- Environments ----------
 ##@ Environments
 
