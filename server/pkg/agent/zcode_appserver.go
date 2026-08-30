@@ -130,15 +130,9 @@ func newZcodeClient(cfg Config, execName, cwd string) (*zcodeClient, error) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	cmd := cfg.commandAt(execName).exec(runCtx, "app-server")
 	hideAgentWindow(cmd)
-	// Run app-server in its own process group so a stuck/cancelled run can be
-	// torn down tree-wide without touching the daemon. Mirrors codex.
-	configureProcessGroup(cmd)
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			signalProcessGroup(cmd, syscall.SIGKILL)
-		}
-		return nil
-	}
+	// Process-group ownership and the group-SIGKILL Cancel come from
+	// Command.exec's newRuntimeCmd defaults (GH #7522); zcode adds only the
+	// drain window for a killed process's stdio.
 	cmd.WaitDelay = 10 * time.Second
 	if cwd != "" {
 		cmd.Dir = cwd
@@ -157,7 +151,7 @@ func newZcodeClient(cfg Config, execName, cwd string) (*zcodeClient, error) {
 	}
 	stderrBuf := newStderrTail(io.Discard, zcodeStderrTailBytes)
 	cmd.Stderr = stderrBuf
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start zcode app-server: %w", err)
 	}
