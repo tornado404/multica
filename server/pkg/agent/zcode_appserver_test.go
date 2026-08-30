@@ -301,14 +301,25 @@ func TestZcodeProcessSessionEventTurnFailed(t *testing.T) {
 	}
 }
 
+// TestZcodeProcessStateUpdatedPromptLifecycle pins the 3.10.x ingestion
+// semantics: prompt_started/prompt_completed report the prompt being ACCEPTED,
+// not the model turn finishing — prompt_started must not arm the poll
+// (turnStarted) and prompt_completed is only a candidate completion that
+// consumeTurn's projection gate decides about.
 func TestZcodeProcessStateUpdatedPromptStarted(t *testing.T) {
 	b := &zcodeBackend{cfg: Config{Logger: slog.Default()}}
 	state := &zcodeTurnState{usage: map[string]TokenUsage{}}
 	done, _, _, _ := b.processEvent(zcodeSessionEvent{method: "state.updated", params: map[string]any{
 		"reason": "prompt_started",
 	}}, make(chan Message, 4), state)
-	if done || !state.turnStarted {
-		t.Fatalf("prompt_started: done=%v turnStarted=%v", done, state.turnStarted)
+	if done || state.turnStarted {
+		t.Fatalf("prompt_started: done=%v turnStarted=%v (ingestion must not arm the turn)", done, state.turnStarted)
+	}
+	done, status, _, _ := b.processEvent(zcodeSessionEvent{method: "state.updated", params: map[string]any{
+		"reason": "prompt_completed",
+	}}, make(chan Message, 4), state)
+	if !done || status != "completed" {
+		t.Fatalf("prompt_completed: done=%v status=%q (candidate completion for the gate)", done, status)
 	}
 }
 
@@ -509,8 +520,6 @@ func TestZcodeExecuteRecoversCompletedFromPoll(t *testing.T) {
 		`echo '{"method":"session/event","params":{"type":"turn.started","sessionId":"sess_poll","payload":{}}}'`+"\n"+
 		`read line`+"\n"+ // poll session/read
 		`echo '{"id":4,"result":{"projection":{"status":"idle"},"messages":[{"info":{"role":"assistant"},"parts":[{"type":"text","text":"poll result"}]}]}}'`+"\n"+
-		`read line`+"\n"+ // readSessionResponse session/read
-		`echo '{"id":5,"result":{"projection":{"status":"idle"},"messages":[{"info":{"role":"assistant"},"parts":[{"type":"text","text":"poll result"}]}]}}'`+"\n"+
 		`while read line; do :; done`+"\n")
 
 	result, _ := executeFakeZcode(t, fakePath, Config{Logger: slog.Default(), RuntimeID: "rt-exec-poll"},
@@ -547,8 +556,6 @@ func TestZcodeExecutePollFallbackArmedByStreaming(t *testing.T) {
 		`echo '{"method":"session/event","params":{"type":"model.streaming","sessionId":"sess_stream","payload":{"kind":"reasoning_delta","delta":"think"}}}'`+"\n"+
 		`read line`+"\n"+ // poll session/read
 		`echo '{"id":4,"result":{"projection":{"status":"idle"},"messages":[{"info":{"role":"assistant"},"parts":[{"type":"text","text":"poll result"}]}]}}'`+"\n"+
-		`read line`+"\n"+ // readSessionResponse session/read
-		`echo '{"id":5,"result":{"projection":{"status":"idle"},"messages":[{"info":{"role":"assistant"},"parts":[{"type":"text","text":"poll result"}]}]}}'`+"\n"+
 		`while read line; do :; done`+"\n")
 
 	result, _ := executeFakeZcode(t, fakePath, Config{Logger: slog.Default(), RuntimeID: "rt-exec-stream-poll"},
@@ -891,6 +898,45 @@ func TestZcodeExecuteRecoversEmptyCompletionFromRead(t *testing.T) {
 	}
 	if result.SessionID != "sess_empty" {
 		t.Fatalf("session id = %q, want sess_empty (a retry must not fire here)", result.SessionID)
+	}
+}
+
+// TestZcodeExecuteIgnoresPrematurePromptCompleted pins the 3.10.x ingestion
+// lifecycle: state.updated prompt_started/prompt_completed fire right after
+// send while the projection is still idle and no assistant message exists —
+// taking them as terminal ended turns as completed-with-empty-output before
+// the model ever ran. The turn must keep consuming and finish on the real
+// turn.completed.
+func TestZcodeExecuteIgnoresPrematurePromptCompleted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fixture is POSIX-only")
+	}
+	fakePath := writeFakeZcodeAppServer(t, ""+
+		`read line`+"\n"+ // session/create
+		`echo '{"id":1,"result":{"session":{"sessionId":"sess_premature"}}}'`+"\n"+
+		`read line`+"\n"+ // session/subscribe
+		`echo '{"id":2,"result":{"eventSeq":0,"events":[]}}'`+"\n"+
+		`read line`+"\n"+ // session/send
+		`echo '{"id":3,"result":{"accepted":true,"sessionId":"sess_premature"}}'`+"\n"+
+		`echo '{"method":"state.updated","params":{"type":"state.updated","sessionId":"sess_premature","reason":"prompt_started"}}'`+"\n"+
+		`echo '{"method":"state.updated","params":{"type":"state.updated","sessionId":"sess_premature","reason":"prompt_completed"}}'`+"\n"+
+		`read line`+"\n"+ // the gate's projection check: idle, nothing to show
+		`echo '{"id":4,"result":{"projection":{"status":"idle"},"messages":[]}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.started","sessionId":"sess_premature","payload":{}}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.completed","sessionId":"sess_premature","payload":{"response":"真实回复","usage":{"inputTokens":100,"outputTokens":5}}}}'`+"\n"+
+		`while read line; do :; done`+"\n")
+
+	result, _ := executeFakeZcode(t, fakePath, Config{Logger: slog.Default(), RuntimeID: "rt-exec-premature"},
+		ExecOptions{Model: "bigmodel/GLM-5.2"}, 10*time.Second)
+
+	if result.Status != "completed" {
+		t.Fatalf("expected completed on the real turn.completed, got status=%q error=%q", result.Status, result.Error)
+	}
+	if result.Output != "真实回复" {
+		t.Fatalf("output = %q, want 真实回复 (the premature prompt_completed must not end the turn)", result.Output)
+	}
+	if result.SessionID != "sess_premature" {
+		t.Fatalf("session id = %q, want sess_premature (a retry must not fire here)", result.SessionID)
 	}
 }
 
