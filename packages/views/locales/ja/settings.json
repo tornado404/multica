@@ -762,6 +762,7 @@
     "webhook_setup_title": "Finish setup in your provider",
     "webhook_setup_description": "Add a webhook on your repository or organisation with the URL and secret below. Forgejo/Gitea: choose the Gitea format and the Pull Request (and Commit Status) events. GitLab: paste the secret as the token and enable Merge request and Pipeline events.",
     "webhook_url_label": "Webhook URL",
+    "webhook_url_public_hint": "MULTICA_PUBLIC_URL is not set on this server, so webhook URLs are built from your current browser address. Make sure your Git instance can reach Multica at that address \u2014 otherwise set MULTICA_PUBLIC_URL and reconnect.",
     "webhook_secret_label": "Webhook secret",
     "webhook_secret_warning": "Copy the secret now. It is shown only once and cannot be retrieved later.",
     "copy": "Copy",
