@@ -58,6 +58,17 @@ const PROVIDER_OPTIONS = PROVIDERS.map((p) => ({
   label: PROVIDER_LABELS[p],
 }));
 
+// webhookUrlFor resolves the paste-ready webhook URL. The backend omits the
+// absolute URL when MULTICA_PUBLIC_URL is unset (see VCSConnectionResponse),
+// and the documented contract is that the UI then prefixes webhook_path with
+// the origin the user is browsing from — a bare relative path pasted into the
+// provider's webhook form is how misrouted hooks happen.
+function webhookUrlFor(c: { webhook_url: string; webhook_path: string }): string {
+  if (c.webhook_url) return c.webhook_url;
+  if (typeof window === "undefined") return c.webhook_path;
+  return window.location.origin + c.webhook_path;
+}
+
 /**
  * Self-hosted Forgejo / Gitea / GitLab connections, rendered as rows of the
  * Code page's "Code hosting" card: one row per connected instance, then a row
@@ -162,6 +173,11 @@ export function VCSConnectionRows() {
 
   return (
     <>
+      {connections.some((c) => !c.webhook_url) && (
+        <p className="text-caption text-warning">
+          {t(($) => $.vcs.webhook_url_public_hint)}
+        </p>
+      )}
       {connections.map((c) => (
         <SettingsRow
           key={c.id}
@@ -348,7 +364,7 @@ export function VCSConnectionRows() {
               <CopyField
                 id="vcs-webhook-url"
                 label={t(($) => $.vcs.webhook_url_label)}
-                value={webhook.webhook_url || webhook.webhook_path}
+                value={webhookUrlFor(webhook)}
                 onCopy={copy}
                 copyLabel={t(($) => $.vcs.copy)}
               />
