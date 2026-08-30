@@ -521,7 +521,7 @@ func (b *zcodeBackend) runTurn(ctx context.Context, prompt string, opts ExecOpti
 		input = opts.ResumeContinuityNotice + prompt
 	}
 
-	status, out, errMsg, usage, rpcErr := b.runSessionTurn(runCtx, proc, sessionID, input, providerID, modelID, timeout, semanticInactivityTimeout, msgCh)
+	status, out, errMsg, state, rpcErr := b.runSessionTurn(runCtx, proc, sessionID, input, providerID, modelID, timeout, semanticInactivityTimeout, msgCh)
 
 	// ZCode rejects session/send with -32031 when the resumed session's stored
 	// model is not in its current workspace model catalog (a catalog-state
@@ -540,10 +540,45 @@ func (b *zcodeBackend) runTurn(ctx context.Context, prompt string, opts ExecOpti
 			if opts.ResumeExpected {
 				freshInput = opts.ResumeContinuityNotice + prompt
 			}
-			if s2, o2, e2, u2, r2 := b.runSessionTurn(runCtx, proc, freshID, freshInput, providerID, modelID, timeout, semanticInactivityTimeout, msgCh); r2 == nil {
-				sessionID, status, out, errMsg, usage = freshID, s2, o2, e2, u2
+			if s2, o2, e2, st2, r2 := b.runSessionTurn(runCtx, proc, freshID, freshInput, providerID, modelID, timeout, semanticInactivityTimeout, msgCh); r2 == nil {
+				sessionID, status, out, errMsg, state = freshID, s2, o2, e2, st2
 			}
 		}
+	}
+
+	// A completed turn with no response text at all is ZCode's occasional
+	// empty completion (the upstream model returns nothing and the runtime
+	// still reports success). One retry on a fresh session recovers it almost
+	// every time; a turn that ran tool calls is exempt because its work is
+	// real and re-running it would duplicate the side effects.
+	if zcodeTurnEndedEmpty(status, out, state) {
+		if b.cfg.Logger != nil {
+			b.cfg.Logger.Warn("zcode: turn completed with empty output; retrying once on a fresh session",
+				"session_id", sessionID)
+		}
+		zcodeCloseSession(proc, sessionID)
+		retryID, cerr := b.createFreshSession(runCtx, proc, providerID, modelID, handshakeTimeout, opts.Cwd)
+		if cerr == nil {
+			retryInput := prompt
+			if opts.ResumeExpected {
+				retryInput = opts.ResumeContinuityNotice + prompt
+			}
+			if s2, o2, e2, st2, r2 := b.runSessionTurn(runCtx, proc, retryID, retryInput, providerID, modelID, timeout, semanticInactivityTimeout, msgCh); r2 == nil {
+				sessionID, status, out, errMsg, state = retryID, s2, o2, e2, st2
+			}
+		} else if b.cfg.Logger != nil {
+			b.cfg.Logger.Warn("zcode: empty-output retry could not create a session", "error", cerr)
+		}
+	}
+
+	// Twice-empty (still no tool activity): report a retryable failure instead
+	// of a silent "completed" that the UI renders as an ended turn with
+	// nothing to show. The wording carries taskfailure.Classify rule 9's
+	// stable witness ("returned empty output" →
+	// agent_error.empty_or_unparseable_output).
+	if zcodeTurnEndedEmpty(status, out, state) {
+		status = "failed"
+		errMsg = withAgentStderr("zcode turn completed but returned empty output", "zcode", proc.stderrTail())
 	}
 
 	if b.cfg.Logger != nil {
@@ -555,18 +590,39 @@ func (b *zcodeBackend) runTurn(ctx context.Context, prompt string, opts ExecOpti
 		Error:      errMsg,
 		DurationMs: time.Since(startTime).Milliseconds(),
 		SessionID:  sessionID,
-		Usage:      usage,
+		Usage:      state.usage,
 	}
 }
 
+// zcodeTurnEndedEmpty reports whether a turn reported "completed" without
+// producing any response text. A turn that ran tool calls is excluded: the
+// daemon treats completed-with-empty-output as a valid tool-only outcome
+// (comments posted, code pushed), and retrying it would redo that work.
+func zcodeTurnEndedEmpty(status, out string, state *zcodeTurnState) bool {
+	return status == "completed" &&
+		strings.TrimSpace(out) == "" &&
+		(state == nil || len(state.tools) == 0)
+}
+
 // runSessionTurn subscribes to a session, sends one turn, and consumes its
-// events. It returns the send RPC error separately so callers can detect a
-// ZCode restore-warning rejection (-32031) and fall back to a fresh session.
-func (b *zcodeBackend) runSessionTurn(ctx context.Context, proc *zcodeClient, sessionID, input, providerID, modelID string, timeout, semanticInactivityTimeout time.Duration, msgCh chan<- Message) (status, out, errMsg string, usage map[string]TokenUsage, rpcErr *zcodeRPCError) {
+// events. It returns the accumulated turn state (usage, tool activity) so
+// callers can tell a tool-only empty completion apart from a dead turn, and
+// the send RPC error separately so callers can detect a ZCode restore-warning
+// rejection (-32031) and fall back to a fresh session.
+func (b *zcodeBackend) runSessionTurn(ctx context.Context, proc *zcodeClient, sessionID, input, providerID, modelID string, timeout, semanticInactivityTimeout time.Duration, msgCh chan<- Message) (status, out, errMsg string, state *zcodeTurnState, rpcErr *zcodeRPCError) {
+	// Created up front so every return path hands back a usable state (the
+	// caller reads state.usage even on a failed subscribe/send).
+	state = &zcodeTurnState{
+		usage:      map[string]TokenUsage{},
+		tools:      map[string]string{},
+		sessionID:  sessionID,
+		providerID: providerID,
+		modelID:    modelID,
+	}
 	if _, err := proc.request(ctx, "session/subscribe", map[string]any{
 		"sessionId": sessionID, "deliveryKind": "desktop-continuous",
 	}); err != nil {
-		return "failed", "", withAgentStderr(fmt.Sprintf("zcode session/subscribe failed: %v", err), "zcode", proc.stderrTail()), nil, nil
+		return "failed", "", withAgentStderr(fmt.Sprintf("zcode session/subscribe failed: %v", err), "zcode", proc.stderrTail()), state, nil
 	}
 	handler := proc.attachSession(sessionID)
 	defer proc.detachSession(sessionID)
@@ -575,20 +631,13 @@ func (b *zcodeBackend) runSessionTurn(ctx context.Context, proc *zcodeClient, se
 	}); err != nil {
 		var rpc *zcodeRPCError
 		if errors.As(err, &rpc) {
-			return "failed", "", withAgentStderr(fmt.Sprintf("zcode session/send failed: %v", err), "zcode", proc.stderrTail()), nil, rpc
+			return "failed", "", withAgentStderr(fmt.Sprintf("zcode session/send failed: %v", err), "zcode", proc.stderrTail()), state, rpc
 		}
-		return "failed", "", withAgentStderr(fmt.Sprintf("zcode session/send failed: %v", err), "zcode", proc.stderrTail()), nil, nil
+		return "failed", "", withAgentStderr(fmt.Sprintf("zcode session/send failed: %v", err), "zcode", proc.stderrTail()), state, nil
 	}
 	trySend(msgCh, Message{Type: MessageStatus, Status: "running", SessionID: sessionID})
-	state := &zcodeTurnState{
-		usage:      map[string]TokenUsage{},
-		tools:      map[string]string{},
-		sessionID:  sessionID,
-		providerID: providerID,
-		modelID:    modelID,
-	}
 	status, out, errMsg = b.consumeTurn(ctx, proc, handler, state, timeout, semanticInactivityTimeout, msgCh)
-	return status, out, errMsg, state.usage, nil
+	return status, out, errMsg, state, nil
 }
 
 // isZcodeModelUnavailable reports whether err is the ZCode restore-warning
@@ -698,6 +747,15 @@ func (b *zcodeBackend) consumeTurn(ctx context.Context, proc *zcodeClient, handl
 			resetTimer(semanticTimer, semanticInactivityTimeout)
 			if done, st, o, e := b.processEvent(ev, msgCh, state); done {
 				terminal, status, out, errMsg = true, st, o, e
+				// A completed notification with no usable response text falls
+				// back to the accumulated stream, then session/read — the
+				// recovery the poll path already performs. Bounded so a hung
+				// app-server cannot stretch the turn past its own completion.
+				if st == "completed" && strings.TrimSpace(o) == "" {
+					rctx, rcancel := context.WithTimeout(context.Background(), zcodeStopTimeout)
+					out = b.readSessionResponse(rctx, proc, state)
+					rcancel()
+				}
 			}
 		case <-pollTicker.C:
 			// Notifications can be dropped by the runtime (a turn may complete
@@ -801,6 +859,14 @@ func (b *zcodeBackend) processSessionEvent(params map[string]any, msgCh chan<- M
 		state.finalResponse = response
 		if u := zcodePayloadUsage(payload); len(u) > 0 {
 			state.usage = u
+		}
+		if strings.TrimSpace(response) == "" {
+			// The runtime occasionally ends a turn with an empty response
+			// field even though text streamed. Recover from the accumulated
+			// deltas here; consumeTurn falls back further to session/read.
+			// (The poll path always had this recovery — parity for the event
+			// path.)
+			response = state.lastText
 		}
 		return true, "completed", response, ""
 	case "turn.failed":
