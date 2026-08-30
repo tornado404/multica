@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/multica-ai/multica/server/pkg/taskfailure"
 )
 
 // ── test helpers ──────────────────────────────────────────────────────────
@@ -845,5 +848,173 @@ func TestZcodeResultHelpers(t *testing.T) {
 	]}`)
 	if got := zcodeFinalResponse(read); got != "final answer" {
 		t.Fatalf("final response = %q", got)
+	}
+}
+
+// ── empty-completion handling ─────────────────────────────────────────────
+//
+// The runtime occasionally reports turn.completed with an empty response —
+// the upstream model returned nothing and the turn still "succeeded". Three
+// layers of recovery: the event path falls back to the accumulated stream
+// then session/read (parity with the poll path); a still-empty turn is
+// retried once on a fresh session; a twice-empty turn surfaces as a
+// retryable failure instead of a silent completion.
+
+// TestZcodeExecuteRecoversEmptyCompletionFromRead pins event-path parity:
+// turn.completed with an empty response must fall back to session/read on the
+// event path (not just the poll path) before the turn is declared done-empty.
+func TestZcodeExecuteRecoversEmptyCompletionFromRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fixture is POSIX-only")
+	}
+	fakePath := writeFakeZcodeAppServer(t, ""+
+		`read line`+"\n"+ // session/create
+		`echo '{"id":1,"result":{"session":{"sessionId":"sess_empty"}}}'`+"\n"+
+		`read line`+"\n"+ // session/subscribe
+		`echo '{"id":2,"result":{"eventSeq":0,"events":[]}}'`+"\n"+
+		`read line`+"\n"+ // session/send
+		`echo '{"id":3,"result":{"accepted":true,"sessionId":"sess_empty"}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.started","sessionId":"sess_empty","payload":{}}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.completed","sessionId":"sess_empty","payload":{"response":""}}}'`+"\n"+
+		`read line`+"\n"+ // recovery session/read
+		`echo '{"id":4,"result":{"projection":{"status":"idle"},"messages":[{"info":{"role":"assistant"},"parts":[{"type":"text","text":"recovered from read"}]}]}}'`+"\n"+
+		`while read line; do :; done`+"\n")
+
+	result, _ := executeFakeZcode(t, fakePath, Config{Logger: slog.Default(), RuntimeID: "rt-exec-empty-read"},
+		ExecOptions{Model: "bigmodel/GLM-5.2"}, 10*time.Second)
+
+	if result.Status != "completed" {
+		t.Fatalf("expected completed via read recovery, got status=%q error=%q", result.Status, result.Error)
+	}
+	if result.Output != "recovered from read" {
+		t.Fatalf("output = %q, want recovered-from-read", result.Output)
+	}
+	if result.SessionID != "sess_empty" {
+		t.Fatalf("session id = %q, want sess_empty (a retry must not fire here)", result.SessionID)
+	}
+}
+
+// TestZcodeExecuteRetriesEmptyCompletionOnFreshSession pins the one-shot
+// empty-completion retry: a turn that completed with no recoverable text is
+// re-run on a fresh session, and the retry's output becomes the result.
+func TestZcodeExecuteRetriesEmptyCompletionOnFreshSession(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fixture is POSIX-only")
+	}
+	fakePath := writeFakeZcodeAppServer(t, ""+
+		`read line`+"\n"+ // session/create -> sess_empty1
+		`echo '{"id":1,"result":{"session":{"sessionId":"sess_empty1"}}}'`+"\n"+
+		`read line`+"\n"+ // session/subscribe
+		`echo '{"id":2,"result":{"eventSeq":0,"events":[]}}'`+"\n"+
+		`read line`+"\n"+ // session/send
+		`echo '{"id":3,"result":{"accepted":true,"sessionId":"sess_empty1"}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.started","sessionId":"sess_empty1","payload":{}}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.completed","sessionId":"sess_empty1","payload":{"response":""}}}'`+"\n"+
+		`read line`+"\n"+ // recovery session/read -> nothing to recover
+		`echo '{"id":4,"result":{"projection":{"status":"idle"},"messages":[]}}'`+"\n"+
+		`read line`+"\n"+ // session/close (sess_empty1)
+		`echo '{"id":5,"result":{"closed":true}}'`+"\n"+
+		`read line`+"\n"+ // session/create -> sess_retry
+		`echo '{"id":6,"result":{"session":{"sessionId":"sess_retry"}}}'`+"\n"+
+		`read line`+"\n"+ // session/subscribe
+		`echo '{"id":7,"result":{"eventSeq":0,"events":[]}}'`+"\n"+
+		`read line`+"\n"+ // session/send
+		`echo '{"id":8,"result":{"accepted":true,"sessionId":"sess_retry"}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.started","sessionId":"sess_retry","payload":{}}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.completed","sessionId":"sess_retry","payload":{"response":"recovered on retry"}}}'`+"\n"+
+		`while read line; do :; done`+"\n")
+
+	result, _ := executeFakeZcode(t, fakePath, Config{Logger: slog.Default(), RuntimeID: "rt-exec-empty-retry"},
+		ExecOptions{Model: "bigmodel/GLM-5.2"}, 10*time.Second)
+
+	if result.Status != "completed" {
+		t.Fatalf("expected completed via empty-completion retry, got status=%q error=%q", result.Status, result.Error)
+	}
+	if result.Output != "recovered on retry" {
+		t.Fatalf("output = %q, want recovered-on-retry", result.Output)
+	}
+	if result.SessionID != "sess_retry" {
+		t.Fatalf("session id = %q, want sess_retry", result.SessionID)
+	}
+}
+
+// TestZcodeExecuteFailsAfterRepeatedEmptyCompletions pins the terminal
+// mapping: two consecutive empty completions surface as a failed turn whose
+// error carries the classifier's empty-output witness, so the task lands on
+// the retryable agent_error.empty_or_unparseable_output reason instead of a
+// silent "completed".
+func TestZcodeExecuteFailsAfterRepeatedEmptyCompletions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fixture is POSIX-only")
+	}
+	emptyTurn := func(createID int, session string) string {
+		next := createID + 1
+		return "" +
+			`read line` + "\n" + // session/create
+			`echo '{"id":` + strconv.Itoa(createID) + `,"result":{"session":{"sessionId":"` + session + `"}}}'` + "\n" +
+			`read line` + "\n" + // session/subscribe
+			`echo '{"id":` + strconv.Itoa(next) + `,"result":{"eventSeq":0,"events":[]}}'` + "\n" +
+			`read line` + "\n" + // session/send
+			`echo '{"id":` + strconv.Itoa(next+1) + `,"result":{"accepted":true,"sessionId":"` + session + `"}}'` + "\n" +
+			`echo '{"method":"session/event","params":{"type":"turn.started","sessionId":"` + session + `","payload":{}}}'` + "\n" +
+			`echo '{"method":"session/event","params":{"type":"turn.completed","sessionId":"` + session + `","payload":{"response":""}}}'` + "\n" +
+			`read line` + "\n" + // recovery session/read -> nothing to recover
+			`echo '{"id":` + strconv.Itoa(next+2) + `,"result":{"projection":{"status":"idle"},"messages":[]}}'` + "\n"
+	}
+	fakePath := writeFakeZcodeAppServer(t,
+		emptyTurn(1, "sess_empty1")+
+			`read line`+"\n"+ // session/close (sess_empty1)
+			`echo '{"id":5,"result":{"closed":true}}'`+"\n"+
+			emptyTurn(6, "sess_empty2")+
+			`while read line; do :; done`+"\n")
+
+	result, _ := executeFakeZcode(t, fakePath, Config{Logger: slog.Default(), RuntimeID: "rt-exec-empty-twice"},
+		ExecOptions{Model: "bigmodel/GLM-5.2"}, 10*time.Second)
+
+	if result.Status != "failed" {
+		t.Fatalf("expected failed after two empty completions, got status=%q error=%q", result.Status, result.Error)
+	}
+	if !strings.Contains(result.Error, "returned empty output") {
+		t.Fatalf("error %q must carry the empty-output classifier witness", result.Error)
+	}
+	if got := taskfailure.Classify(result.Error); got != taskfailure.ReasonAgentEmptyOrUnparseableOutput {
+		t.Fatalf("classified reason = %q, want %q", got, taskfailure.ReasonAgentEmptyOrUnparseableOutput)
+	}
+	if result.SessionID != "sess_empty2" {
+		t.Fatalf("session id = %q, want sess_empty2 (the retried session)", result.SessionID)
+	}
+}
+
+// TestZcodeExecuteKeepsToolOnlyEmptyCompletion pins the retry exemption: a
+// turn that ran tool calls and completed with empty text did real work — the
+// daemon treats that as a valid completion, and re-running it would duplicate
+// the side effects. No retry, no failure mapping.
+func TestZcodeExecuteKeepsToolOnlyEmptyCompletion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fixture is POSIX-only")
+	}
+	fakePath := writeFakeZcodeAppServer(t, ""+
+		`read line`+"\n"+ // session/create
+		`echo '{"id":1,"result":{"session":{"sessionId":"sess_tools"}}}'`+"\n"+
+		`read line`+"\n"+ // session/subscribe
+		`echo '{"id":2,"result":{"eventSeq":0,"events":[]}}'`+"\n"+
+		`read line`+"\n"+ // session/send
+		`echo '{"id":3,"result":{"accepted":true,"sessionId":"sess_tools"}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.started","sessionId":"sess_tools","payload":{}}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"tool.updated","sessionId":"sess_tools","payload":{"kind":"started","toolCallId":"call_1","toolName":"Bash"}}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"tool.updated","sessionId":"sess_tools","payload":{"kind":"result","toolCallId":"call_1","result":{"content":"done","success":true}}}}'`+"\n"+
+		`echo '{"method":"session/event","params":{"type":"turn.completed","sessionId":"sess_tools","payload":{"response":""}}}'`+"\n"+
+		`read line`+"\n"+ // recovery session/read -> nothing to recover
+		`echo '{"id":4,"result":{"projection":{"status":"idle"},"messages":[]}}'`+"\n"+
+		`while read line; do :; done`+"\n")
+
+	result, _ := executeFakeZcode(t, fakePath, Config{Logger: slog.Default(), RuntimeID: "rt-exec-empty-tools"},
+		ExecOptions{Model: "bigmodel/GLM-5.2"}, 10*time.Second)
+
+	if result.Status != "completed" {
+		t.Fatalf("expected tool-only empty completion to stay completed, got status=%q error=%q", result.Status, result.Error)
+	}
+	if result.SessionID != "sess_tools" {
+		t.Fatalf("session id = %q, want sess_tools (no retry may fire)", result.SessionID)
 	}
 }
