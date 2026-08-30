@@ -523,7 +523,7 @@ func (b *zcodeBackend) runTurn(ctx context.Context, prompt string, opts ExecOpti
 		input = opts.ResumeContinuityNotice + prompt
 	}
 
-	status, out, errMsg, state, rpcErr := b.runSessionTurn(runCtx, proc, sessionID, input, providerID, modelID, timeout, semanticInactivityTimeout, msgCh)
+	status, out, errMsg, state, rpcErr := b.runSessionTurn(runCtx, proc, sessionID, resumed, input, providerID, modelID, timeout, semanticInactivityTimeout, msgCh)
 
 	// ZCode rejects session/send with -32031 when the resumed session's stored
 	// model is not in its current workspace model catalog (a catalog-state
@@ -542,7 +542,7 @@ func (b *zcodeBackend) runTurn(ctx context.Context, prompt string, opts ExecOpti
 			if opts.ResumeExpected {
 				freshInput = opts.ResumeContinuityNotice + prompt
 			}
-			if s2, o2, e2, st2, r2 := b.runSessionTurn(runCtx, proc, freshID, freshInput, providerID, modelID, timeout, semanticInactivityTimeout, msgCh); r2 == nil {
+			if s2, o2, e2, st2, r2 := b.runSessionTurn(runCtx, proc, freshID, false, freshInput, providerID, modelID, timeout, semanticInactivityTimeout, msgCh); r2 == nil {
 				sessionID, status, out, errMsg, state = freshID, s2, o2, e2, st2
 			}
 		}
@@ -565,7 +565,7 @@ func (b *zcodeBackend) runTurn(ctx context.Context, prompt string, opts ExecOpti
 			if opts.ResumeExpected {
 				retryInput = opts.ResumeContinuityNotice + prompt
 			}
-			if s2, o2, e2, st2, r2 := b.runSessionTurn(runCtx, proc, retryID, retryInput, providerID, modelID, timeout, semanticInactivityTimeout, msgCh); r2 == nil {
+			if s2, o2, e2, st2, r2 := b.runSessionTurn(runCtx, proc, retryID, false, retryInput, providerID, modelID, timeout, semanticInactivityTimeout, msgCh); r2 == nil {
 				sessionID, status, out, errMsg, state = retryID, s2, o2, e2, st2
 			}
 		} else if b.cfg.Logger != nil {
@@ -611,7 +611,7 @@ func zcodeTurnEndedEmpty(status, out string, state *zcodeTurnState) bool {
 // callers can tell a tool-only empty completion apart from a dead turn, and
 // the send RPC error separately so callers can detect a ZCode restore-warning
 // rejection (-32031) and fall back to a fresh session.
-func (b *zcodeBackend) runSessionTurn(ctx context.Context, proc *zcodeClient, sessionID, input, providerID, modelID string, timeout, semanticInactivityTimeout time.Duration, msgCh chan<- Message) (status, out, errMsg string, state *zcodeTurnState, rpcErr *zcodeRPCError) {
+func (b *zcodeBackend) runSessionTurn(ctx context.Context, proc *zcodeClient, sessionID string, resumed bool, input, providerID, modelID string, timeout, semanticInactivityTimeout time.Duration, msgCh chan<- Message) (status, out, errMsg string, state *zcodeTurnState, rpcErr *zcodeRPCError) {
 	// Created up front so every return path hands back a usable state (the
 	// caller reads state.usage even on a failed subscribe/send).
 	state = &zcodeTurnState{
@@ -636,6 +636,19 @@ func (b *zcodeBackend) runSessionTurn(ctx context.Context, proc *zcodeClient, se
 			return "failed", "", withAgentStderr(fmt.Sprintf("zcode session/send failed: %v", err), "zcode", proc.stderrTail()), state, rpc
 		}
 		return "failed", "", withAgentStderr(fmt.Sprintf("zcode session/send failed: %v", err), "zcode", proc.stderrTail()), state, nil
+	}
+	// Baseline for the completion gate: how many assistant messages the
+	// session already carries, so this turn's own reply is the delta. Fresh
+	// sessions start from zero (no read needed); a resumed session takes one
+	// pre-send read. A failed read leaves -1 (unknown) and the gate falls
+	// back to turn-activity signals alone.
+	state.baselineAssistant = 0
+	if resumed {
+		if resp, _ := b.zcodeSnapshot(ctx, proc, state); resp != nil {
+			state.baselineAssistant = zcodeAssistantCount(resp)
+		} else {
+			state.baselineAssistant = -1
+		}
 	}
 	trySend(msgCh, Message{Type: MessageStatus, Status: "running", SessionID: sessionID})
 	status, out, errMsg = b.consumeTurn(ctx, proc, handler, state, timeout, semanticInactivityTimeout, msgCh)
@@ -733,6 +746,14 @@ type zcodeTurnState struct {
 	// tools remembers toolCallId → toolName from the "started" phase; the
 	// "result" phase of a tool.updated event does not repeat the name.
 	tools map[string]string
+	// baselineAssistant is the number of assistant messages the session
+	// already had before this turn's prompt was sent. The completion gate
+	// accepts an empty "completed" only when the snapshot gained a NEW
+	// assistant message (count > baseline): on a resumed session the history
+	// otherwise reads as a finished turn. -1 means unknown (the baseline read
+	// failed) and disables the count check in favour of turn-activity
+	// signals.
+	baselineAssistant int
 }
 
 func (b *zcodeBackend) consumeTurn(ctx context.Context, proc *zcodeClient, handler *zcodeSessionHandler, state *zcodeTurnState, timeout, semanticInactivityTimeout time.Duration, msgCh chan<- Message) (status, out, errMsg string) {
@@ -748,25 +769,47 @@ func (b *zcodeBackend) consumeTurn(ctx context.Context, proc *zcodeClient, handl
 			proc.noteActivity()
 			resetTimer(semanticTimer, semanticInactivityTimeout)
 			if done, st, o, e := b.processEvent(ev, msgCh, state); done {
-				terminal, status, out, errMsg = true, st, o, e
-				// A completed notification with no usable response text falls
-				// back to the accumulated stream, then session/read — the
-				// recovery the poll path already performs. Bounded so a hung
-				// app-server cannot stretch the turn past its own completion.
+				// An empty "completed" is not accepted at face value. Verified
+				// against zcode-app-cli 3.10.x: state.updated prompt_started /
+				// prompt_completed report the prompt-INGESTION lifecycle —
+				// prompt_completed fires ~0.3s after send while the projection
+				// is still idle and the real model turn starts tens of seconds
+				// later — so taking it as terminal ended turns as
+				// completed-with-empty-output before the model ever ran.
+				// Accept an empty completion only when the snapshot shows an
+				// assistant reply (the turn really finished) or real turn
+				// activity was seen and the projection confirms the turn
+				// ended; otherwise keep consuming until the real
+				// turn.completed (or the projection-gated poll) resolves it.
+				// Bounded so a hung app-server cannot stretch the turn past
+				// its own completion.
 				if st == "completed" && strings.TrimSpace(o) == "" {
 					rctx, rcancel := context.WithTimeout(context.Background(), zcodeStopTimeout)
-					out = b.readSessionResponse(rctx, proc, state)
+					resp, projDone := b.zcodeSnapshot(rctx, proc, state)
+					if zcodeSnapshotHasAssistant(resp, state.baselineAssistant) || (state.turnStarted && projDone) {
+						o = zcodeFinalResponse(resp)
+					} else {
+						done = false
+					}
 					rcancel()
+				}
+				if done {
+					terminal, status, out, errMsg = true, st, o, e
 				}
 			}
 		case <-pollTicker.C:
 			// Notifications can be dropped by the runtime (a turn may complete
 			// internally while emitting nothing), so session/read is the
-			// source of truth for the terminal state.
-			if state.turnStarted && b.turnDoneByPoll(ctx, proc, state) {
-				terminal = true
-				status = "completed"
-				out = b.readSessionResponse(ctx, proc, state)
+			// source of truth for the terminal state. turnStarted is armed
+			// only by real turn activity, and the assistant-reply guard keeps
+			// the projection's idle window between prompt ingestion and model
+			// start from reading as done.
+			if state.turnStarted {
+				if resp, projDone := b.zcodeSnapshot(ctx, proc, state); projDone && zcodeSnapshotHasAssistant(resp, state.baselineAssistant) {
+					terminal = true
+					status = "completed"
+					out = zcodeFinalResponse(resp)
+				}
 			}
 		case <-semanticTimer.C:
 			terminal = true
@@ -923,9 +966,18 @@ func (b *zcodeBackend) processToolUpdated(payload map[string]any, msgCh chan<- M
 func (b *zcodeBackend) processStateUpdated(params map[string]any, state *zcodeTurnState) (bool, string, string, string) {
 	switch reason, _ := params["reason"].(string); reason {
 	case "prompt_started":
-		state.turnStarted = true
+		// zcode-app-cli 3.10.x emits prompt_started/prompt_completed when the
+		// prompt is ACCEPTED — the ingestion lifecycle, not the model turn's.
+		// The projection stays idle through the whole ingestion→model gap, so
+		// arming the poll here made the poll fire mid-gap; real turn activity
+		// (turn.started / model.streaming / tool.updated) arms it instead.
 		return false, "", "", ""
 	case "prompt_completed":
+		// Always a candidate completion: consumeTurn's projection gate
+		// decides — an assistant reply in the snapshot accepts it, and an
+		// empty one during the ingestion gap (no real turn activity yet) is
+		// ignored. A non-empty finalResponse here means a turn.completed
+		// payload was already captured, which is terminal outright.
 		return true, "completed", state.finalResponse, ""
 	case "prompt_failed":
 		return true, "failed", "", "zcode turn failed"
@@ -941,15 +993,54 @@ func (b *zcodeBackend) processTelemetry(params map[string]any, state *zcodeTurnS
 	return false, "", "", ""
 }
 
-// turnDoneByPoll reports whether session/read says the turn is finished (the
-// projection left the running state after the turn started).
-func (b *zcodeBackend) turnDoneByPoll(ctx context.Context, proc *zcodeClient, state *zcodeTurnState) bool {
+// zcodeSnapshot fetches one session/read snapshot and reports whether the
+// projection has left the running state (idle/ended) — the source of truth for
+// "the turn is over". A failed read is reported as not-done so callers keep
+// consuming instead of terminating on transport noise.
+func (b *zcodeBackend) zcodeSnapshot(ctx context.Context, proc *zcodeClient, state *zcodeTurnState) (json.RawMessage, bool) {
 	resp, err := proc.request(ctx, "session/read", map[string]any{"sessionId": state.sessionID})
 	if err != nil {
-		return false
+		return nil, false
 	}
 	status := zcodeProjectionStatus(resp)
-	return status == "idle" || status == "ended"
+	return resp, status == "idle" || status == "ended"
+}
+
+// zcodeSnapshotHasAssistant reports whether a session/read snapshot contains
+// a NEW assistant message beyond the pre-send baseline. Verified against
+// zcode-app-cli 3.10.x: during the prompt-ingestion→model-start gap the
+// projection sits idle with zero messages, and on resumed sessions the
+// history's assistant messages are already present — so the assistant count
+// moving past the baseline is what separates this turn having produced a
+// reply (text or tool parts) from a prompt that was merely accepted. A
+// negative baseline (unknown) disables the count check.
+func zcodeSnapshotHasAssistant(resp json.RawMessage, baseline int) bool {
+	if baseline < 0 {
+		return false
+	}
+	return zcodeAssistantCount(resp) > baseline
+}
+
+// zcodeAssistantCount counts the assistant-role messages in a session/read
+// snapshot.
+func zcodeAssistantCount(resp json.RawMessage) int {
+	var v struct {
+		Messages []struct {
+			Info struct {
+				Role string `json:"role"`
+			} `json:"info"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(resp, &v) != nil {
+		return 0
+	}
+	n := 0
+	for _, m := range v.Messages {
+		if m.Info.Role == "assistant" {
+			n++
+		}
+	}
+	return n
 }
 
 // readSessionResponse returns the final assistant text for the session, from
