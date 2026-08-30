@@ -4,7 +4,7 @@
 -- the native app-server session protocol. Kept in lockstep with
 -- agent.SupportedTypes and agent.New(). NOT VALID preserves the historical-row
 -- tolerance used by the prior family additions; the whitelist carries every
--- family added through migration 403 (zeroclaw) plus zcode.
+-- family added through migration 441 (codearts) plus zcode.
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
 ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
@@ -14,6 +14,7 @@ ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
         'codex',
         'copilot',
         'opencode',
+        'codearts',
         'openclaw',
         'hermes',
         'pi',
