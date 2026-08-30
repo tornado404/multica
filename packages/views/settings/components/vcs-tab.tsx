@@ -42,6 +42,17 @@ const PROVIDER_OPTIONS = PROVIDERS.map((p) => ({
   label: PROVIDER_LABELS[p],
 }));
 
+// webhookUrlFor resolves the paste-ready webhook URL. The backend omits the
+// absolute URL when MULTICA_PUBLIC_URL is unset (see VCSConnectionResponse),
+// and the documented contract is that the UI then prefixes webhook_path with
+// the origin the user is browsing from — a bare relative path pasted into the
+// provider's webhook form is how misrouted hooks happen.
+function webhookUrlFor(c: { webhook_url: string; webhook_path: string }): string {
+  if (c.webhook_url) return c.webhook_url;
+  if (typeof window === "undefined") return c.webhook_path;
+  return window.location.origin + c.webhook_path;
+}
+
 
 export function VCSTab() {
   const { t } = useT("settings");
@@ -131,6 +142,11 @@ export function VCSTab() {
 
       {connections.length > 0 && (
         <div className="space-y-3">
+          {connections.some((c) => !c.webhook_url) && (
+            <p className="text-caption text-amber-600 dark:text-amber-500">
+              {t(($) => $.vcs.webhook_url_public_hint)}
+            </p>
+          )}
           {connections.map((c) => (
             <Card key={c.id}>
               <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
@@ -145,6 +161,15 @@ export function VCSTab() {
                     <p className="text-caption text-muted-foreground break-all">
                       {t(($) => $.vcs.connected_as, { login: c.account_login })}
                     </p>
+                    <div className="pt-2">
+                      <CopyField
+                        label={t(($) => $.vcs.webhook_url_label)}
+                        value={webhookUrlFor(c)}
+                        onCopy={copy}
+                        copyLabel={t(($) => $.vcs.copy)}
+                        mono
+                      />
+                    </div>
                   </div>
                 </div>
                 {canManage && (
@@ -180,10 +205,16 @@ export function VCSTab() {
             </div>
             <CopyField
               label={t(($) => $.vcs.webhook_url_label)}
-              value={justConnected.webhook_url || justConnected.webhook_path}
+              value={webhookUrlFor(justConnected)}
               onCopy={copy}
               copyLabel={t(($) => $.vcs.copy)}
+              mono
             />
+            {!justConnected.webhook_url && (
+              <p className="text-caption text-amber-600 dark:text-amber-500">
+                {t(($) => $.vcs.webhook_url_public_hint)}
+              </p>
+            )}
             <CopyField
               label={t(($) => $.vcs.webhook_secret_label)}
               value={justConnected.webhook_secret}

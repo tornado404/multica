@@ -760,6 +760,7 @@
     "webhook_setup_title": "在代码托管中完成设置",
     "webhook_setup_description": "在仓库或组织中添加 Webhook，使用下方的地址和密钥。Forgejo/Gitea：格式选择 Gitea，事件勾选 Pull Request（及 Commit Status）。GitLab：将密钥填入 token，并启用 Merge request 与 Pipeline 事件。",
     "webhook_url_label": "Webhook 地址",
+    "webhook_url_public_hint": "\u670d\u52a1\u7aef\u672a\u8bbe\u7f6e MULTICA_PUBLIC_URL\uff0cWebhook \u5730\u5740\u662f\u6839\u636e\u5f53\u524d\u6d4f\u89c8\u5668\u5730\u5740\u62fc\u51fa\u6765\u7684\u3002\u8bf7\u786e\u4fdd Git \u5b9e\u4f8b\u80fd\u901a\u8fc7\u8be5\u5730\u5740\u8bbf\u95ee Multica\uff0c\u5426\u5219\u8bf7\u8bbe\u7f6e MULTICA_PUBLIC_URL \u540e\u91cd\u65b0\u8fde\u63a5\u3002",
     "webhook_secret_label": "Webhook 密钥",
     "webhook_secret_warning": "请立即复制密钥。它只显示一次，之后无法再次获取。",
     "copy": "复制",
