@@ -155,6 +155,14 @@ func newZcodeClient(cfg Config, execName, cwd string) (*zcodeClient, error) {
 		cancel()
 		return nil, fmt.Errorf("start zcode app-server: %w", err)
 	}
+	// Reap the child and drop tree ownership when it exits. readLoop's EOF
+	// marks processDone for the turn loop; this goroutine collects the exit
+	// status, and its release kills anything that outlived the reap (the
+	// meaningful half on Windows — same shape as runOwned).
+	go func() {
+		_ = cmd.Wait()
+		releaseProcessGroup(cmd)
+	}()
 
 	c := &zcodeClient{
 		cfg:         cfg,
