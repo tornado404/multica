@@ -1,5 +1,5 @@
 -- Revert ZCode (`zcode`) from the built-in runtime profile protocol whitelist,
--- restoring the constraint as migration 403 (zeroclaw) defined it.
+-- restoring the constraint as migration 441 (codearts) defined it.
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
 ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
@@ -9,6 +9,7 @@ ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
         'codex',
         'copilot',
         'opencode',
+        'codearts',
         'openclaw',
         'hermes',
         'pi',
