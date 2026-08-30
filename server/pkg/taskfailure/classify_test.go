@@ -113,6 +113,11 @@ func TestClassifyRules(t *testing.T) {
 		{"context deadline exceeded", "context deadline exceeded", ReasonAgentProviderNetwork},
 		{"wrapped context deadline", `Post "https://api.example.com/v1": context deadline exceeded`, ReasonAgentProviderNetwork},
 		{"http client timeout", `Get "https://api.example.com": net/http: request canceled (Client.Timeout exceeded while awaiting headers)`, ReasonAgentProviderNetwork},
+		// BigModel's transient transport failure (observed live through the
+		// zcode app-server backend, 2026-08-30): provider copy says "retry
+		// later", so it must land on the retryable network bucket instead of
+		// agent_error.unknown.
+		{"bigmodel network error", "[1234][网络错误，错误id 20260830193902617d25e6fd7a4ffa ，请稍后重试。][20260830193902617d25e6fd7a4ffa]", ReasonAgentProviderNetwork},
 		// #6522: all three OpenCode terminal-signal guard failures are silent
 		// provider stream cuts. The two "terminal signal" variants used to hit
 		// rule 13 by accident (the word "signal") and the empty-step one fell
