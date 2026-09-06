@@ -49,6 +49,7 @@ server/multica
 
 # ZCode workspace metadata (local agent session/plan state, not source)
 .zcode/
+.commandcode/
 
 # Test artifacts
 test-results/
