@@ -2080,6 +2080,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				// cannot mint an agent carrying `system_key` and thereby claim
 				// the system instruction layer. Idempotent per workspace.
 				r.Post("/mika", h.CreateMikaAgent)
+				// Re-bucket many agents in one transaction. Drives the Allocator
+				// GUI's pour; authorization is per row inside the handler, so a
+				// batch that includes an agent the caller may not touch reports
+				// it in `skipped` instead of failing the whole pour.
+				r.Post("/batch-update", h.BatchUpdateAgents)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.GetAgent)
 					r.Put("/", h.UpdateAgent)

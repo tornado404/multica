@@ -1778,41 +1778,27 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		params.McpConfig = append([]byte(nil), rawMcpConfig...)
 	}
 
-	// Resolve the runtime that will be in force after this update so the
-	// thinking_level validation hits the right provider enum. When the
-	// request doesn't move the agent, we still need to load the *current*
-	// runtime to validate a thinking_level change. Resolve once and reuse.
-	targetRuntimeID := existing.RuntimeID
-	targetProvider := ""
-	if req.RuntimeID != nil {
-		runtimeUUID, ok := parseUUIDOrBadRequest(w, *req.RuntimeID, "runtime_id")
-		if !ok {
-			return
-		}
-		runtime, err := h.Queries.GetAgentRuntimeForWorkspace(r.Context(), db.GetAgentRuntimeForWorkspaceParams{
-			ID:          runtimeUUID,
-			WorkspaceID: existing.WorkspaceID,
-		})
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid runtime_id")
-			return
-		}
-		// Same gate as CreateAgent — prevents UpdateAgent from being used to
-		// re-bind an agent onto someone else's private runtime, which would
-		// otherwise be a quiet end-run around the CreateAgent check.
-		member, ok := h.workspaceMember(w, r, uuidToString(existing.WorkspaceID))
-		if !ok {
-			return
-		}
-		if !canUseRuntimeForAgent(member, runtime) {
-			writeError(w, http.StatusForbidden, "this runtime is private; only its owner can move agents onto it")
-			return
-		}
-		params.RuntimeID = runtime.ID
-		params.RuntimeMode = pgtype.Text{String: runtime.RuntimeMode, Valid: true}
-		targetRuntimeID = runtime.ID
-		targetProvider = runtime.Provider
+	// The runtime / model / thinking_level / service_tier arbitration lives in
+	// planAgentRuntimeSwap so this endpoint and POST /api/agents/batch-update
+	// cannot drift apart — see agent_batch.go for why two copies of "which model
+	// survives a provider-family change" is a daemon-time surprise rather than a
+	// compile-time error.
+	//
+	// h.workspaceMember is answered from the request context when the middleware
+	// already resolved membership, so hoisting it costs no extra round trip on
+	// the paths that used to fetch it inside the runtime branch.
+	member, ok := h.workspaceMember(w, r, uuidToString(existing.WorkspaceID))
+	if !ok {
+		return
 	}
+	agentSwap, swapErr := h.planAgentRuntimeSwap(r.Context(), member, existing, req, &params)
+	if swapErr != nil {
+		writeError(w, swapErr.status, swapErr.msg)
+		return
+	}
+	// Restored verbatim from before the runtime-swap extraction: these fields are
+	// UpdateAgent's alone — the Allocator batch endpoint never accepts them, so
+	// planAgentRuntimeSwap does not touch them.
 	// Invocation permission (MUL-3963). OWNER-ONLY write: access is the one
 	// agent property a workspace admin may NOT change (only the owner decides
 	// who can run their agent — the overlay uses the owner's own Composio
@@ -1867,128 +1853,6 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		params.MaxConcurrentTasks = pgtype.Int4{Int32: *req.MaxConcurrentTasks, Valid: true}
-	}
-	if req.Model != nil {
-		params.Model = pgtype.Text{String: *req.Model, Valid: true}
-	} else if req.RuntimeID != nil && existing.Model.Valid && agent.ModelKnownIncompatibleWithProvider(targetProvider, existing.Model.String) {
-		// Model is runtime-native. When moving an agent across known provider
-		// families and the caller did not choose a replacement model, clear the
-		// old value so the new runtime falls back to its own default instead of
-		// receiving an obvious foreign model ID (e.g. Claude Code -> Codex).
-		// Unknown/custom model strings are preserved by the helper.
-		params.Model = pgtype.Text{String: "", Valid: true}
-	}
-
-	// thinking_level handling (MUL-2339). Tri-state semantics:
-	//   - field omitted  → leave column alone (COALESCE narg), but if a
-	//     runtime change in this same request would make the *existing*
-	//     value invalid for the new provider's fixed enum or token syntax,
-	//     reject 400. Exact dynamic-catalog compatibility is daemon-owned.
-	//   - field set to "" → explicit clear (run ClearAgentThinkingLevel post-update)
-	//   - field set to value → validate against the target runtime's fixed enum
-	//     or dynamic-token syntax; reject literal-invalid with 400. Per-model
-	//     combination checks run in the daemon at execution time, not here.
-	shouldClearThinkingLevel := false
-	if req.ThinkingLevel != nil {
-		value := *req.ThinkingLevel
-		if value == "" {
-			shouldClearThinkingLevel = true
-		} else {
-			// Need the target runtime's provider to validate. Re-fetch only when
-			// we haven't already loaded it above (i.e. the request didn't change
-			// runtime_id), to keep the no-change path one DB roundtrip.
-			provider := targetProvider
-			if provider == "" {
-				var ok bool
-				provider, ok = h.resolveAgentProvider(r, existing.WorkspaceID, targetRuntimeID)
-				if !ok {
-					writeError(w, http.StatusInternalServerError, "failed to resolve runtime for thinking_level validation")
-					return
-				}
-			}
-			if !agent.IsKnownThinkingValue(provider, value) {
-				writeError(w, http.StatusBadRequest, thinkingLevelRejection(provider, value))
-				return
-			}
-			switch h.acpThinkingDecision(r.Context(), provider, targetRuntimeID) {
-			case acpEffortAbsent:
-				writeError(w, http.StatusBadRequest, thinkingCapabilityRejection(provider))
-				return
-			case acpEffortUnknown:
-				writeError(w, http.StatusBadRequest, thinkingCapabilityUnknownRejection(provider))
-				return
-			}
-			params.ThinkingLevel = pgtype.Text{String: value, Valid: true}
-		}
-	} else if req.RuntimeID != nil && existing.ThinkingLevel.Valid && existing.ThinkingLevel.String != "" {
-		// Runtime is changing but the caller didn't touch thinking_level.
-		// If the existing value is not in the new provider's enum at all,
-		// preserving it would smuggle a literal-invalid token to the daemon.
-		// Hold the same line as the explicit-set path: always 400 on
-		// literal-invalid, never silently coerce. The caller can either
-		// pass `thinking_level: ""` to clear or pick a value valid for the
-		// new runtime.
-		provider := targetProvider
-		if provider == "" {
-			var ok bool
-			provider, ok = h.resolveAgentProvider(r, existing.WorkspaceID, targetRuntimeID)
-			if !ok {
-				writeError(w, http.StatusInternalServerError, "failed to resolve runtime for thinking_level validation")
-				return
-			}
-		}
-		if !agent.IsKnownThinkingValue(provider, existing.ThinkingLevel.String) {
-			writeError(w, http.StatusBadRequest, existingThinkingLevelRejection(provider, existing.ThinkingLevel.String))
-			return
-		}
-		switch h.acpThinkingDecision(r.Context(), provider, targetRuntimeID) {
-		case acpEffortAbsent:
-			writeError(w, http.StatusBadRequest, existingThinkingCapabilityRejection(provider, existing.ThinkingLevel.String))
-			return
-		case acpEffortUnknown:
-			writeError(w, http.StatusBadRequest, existingThinkingCapabilityUnknownRejection(provider, existing.ThinkingLevel.String))
-			return
-		}
-	}
-
-	shouldClearServiceTier := false
-	if req.ServiceTier != nil {
-		value := *req.ServiceTier
-		if value == "" {
-			shouldClearServiceTier = true
-		} else {
-			provider := targetProvider
-			if provider == "" {
-				var ok bool
-				provider, ok = h.resolveAgentProvider(r, existing.WorkspaceID, targetRuntimeID)
-				if !ok {
-					writeError(w, http.StatusInternalServerError, "failed to resolve runtime for service_tier validation")
-					return
-				}
-			}
-			if !agent.IsKnownServiceTier(provider, value) {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("service_tier %q is not a recognised value for runtime %q", value, provider))
-				return
-			}
-			params.ServiceTier = pgtype.Text{String: value, Valid: true}
-		}
-	} else if req.RuntimeID != nil && existing.ServiceTier.Valid && existing.ServiceTier.String != "" {
-		provider := targetProvider
-		if provider == "" {
-			var ok bool
-			provider, ok = h.resolveAgentProvider(r, existing.WorkspaceID, targetRuntimeID)
-			if !ok {
-				writeError(w, http.StatusInternalServerError, "failed to resolve runtime for service_tier validation")
-				return
-			}
-		}
-		if !agent.IsKnownServiceTier(provider, existing.ServiceTier.String) {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf(
-				"existing service_tier %q is not valid for runtime %q; pass service_tier=\"\" to clear or set a value valid for the new runtime",
-				existing.ServiceTier.String, provider,
-			))
-			return
-		}
 	}
 
 	// composio_toolkit_allowlist handling (MUL-3869). Tri-state semantics
@@ -2061,21 +1925,14 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if shouldClearThinkingLevel {
-		updated, err = h.Queries.ClearAgentThinkingLevel(r.Context(), updated.ID)
-		if err != nil {
-			slog.Warn("clear agent thinking_level failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
-			writeError(w, http.StatusInternalServerError, "failed to clear thinking_level: "+err.Error())
-			return
-		}
-	}
-	if shouldClearServiceTier {
-		updated, err = h.Queries.ClearAgentServiceTier(r.Context(), updated.ID)
-		if err != nil {
-			slog.Warn("clear agent service_tier failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
-			writeError(w, http.StatusInternalServerError, "failed to clear service_tier: "+err.Error())
-			return
-		}
+	// thinking_level / service_tier clears run through the shared swap applier so
+	// this endpoint and the batch endpoint restore NULL identically. The applied
+	// error names just the column, which keeps the message callers saw before
+	// this refactor ("failed to clear thinking_level: <db error>") verbatim.
+	if updated, err = agentSwap.apply(r.Context(), h.Queries, updated); err != nil {
+		slog.Warn("clear agent runtime override failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
+		writeError(w, http.StatusInternalServerError, "failed to clear "+err.Error())
+		return
 	}
 	if shouldClearComposioAllowlist {
 		updated, err = h.Queries.ClearAgentComposioToolkitAllowlist(r.Context(), updated.ID)
@@ -2097,35 +1954,22 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp := h.agentToResponse(updated)
-	if err := h.enrichAgentResponseWithTargets(r.Context(), &resp, updated.ID); err != nil {
-		slog.Warn("update agent: load invocation targets for response failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
-		writeError(w, http.StatusInternalServerError, "failed to load agent invocation targets")
-		return
-	}
-	// agentToResponse always initialises Skills as []; junction-table rows
-	// are untouched by the SQL update, so we reload them here to keep the
-	// response (and the broadcast that mirrors it) in sync with reality.
-	// Without this, callers see "skills": [] after every metadata-only
-	// update and assume their bindings were cleared — see #3459.
-	if err := h.attachAgentSkills(r.Context(), &resp, updated.ID); err != nil {
-		slog.Warn("load agent skills after update failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
-		writeError(w, http.StatusInternalServerError, "failed to load agent skills")
-		return
-	}
 	slog.Info("agent updated", append(logger.RequestAttrs(r), "agent_id", id, "workspace_id", uuidToString(updated.WorkspaceID))...)
-	userID := requestUserID(r)
-	actorType, actorID := h.resolveActor(r, userID, uuidToString(updated.WorkspaceID))
-	h.publish(protocol.EventAgentStatus, uuidToString(updated.WorkspaceID), actorType, actorID, map[string]any{"agent": broadcastAgentResponse(resp)})
-	redactAgentResponseForActor(&resp, actorType)
-	// Workspace admins / non-owner members pass canManageAgent for legitimate
-	// admin actions (e.g. bulk reassigning agents off a leaving member's
-	// runtime), but they must not learn the agent owner's composio allowlist
-	// from the mutation response. See ListAgents/GetAgent for the same gate.
-	if !h.composioMCPAppsEnabled(r.Context()) {
-		suppressComposioToolkitAllowlist(&resp)
-	} else if uuidToString(updated.OwnerID) != userID {
-		redactComposioToolkitAllowlist(&resp)
+	// Response shape + broadcast are shared with POST /api/agents/batch-update,
+	// so a client patching its cache from either surface sees one payload. The
+	// helper already published the event and redacted this copy for the actor.
+	resp, _, _, finErr := h.finalizeAgentMutationResponse(r.Context(), r, updated, requestUserID(r))
+	if finErr != nil {
+		slog.Warn("update agent: response build failed", append(logger.RequestAttrs(r), "error", finErr, "agent_id", id)...)
+		switch {
+		case errors.Is(finErr, errAgentTargetsFetch):
+			writeError(w, http.StatusInternalServerError, errAgentTargetsFetch.Error())
+		case errors.Is(finErr, errAgentSkillsFetch):
+			writeError(w, http.StatusInternalServerError, errAgentSkillsFetch.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to update agent")
+		}
+		return
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -2159,8 +2003,8 @@ func (h *Handler) attachAgentSkills(ctx context.Context, resp *AgentResponse, ag
 // will own this agent after the in-flight update applies. Used by the
 // thinking_level validator so a runtime/model swap and a level swap
 // validated in the same request both consult the same provider.
-func (h *Handler) resolveAgentProvider(r *http.Request, workspaceID pgtype.UUID, runtimeID pgtype.UUID) (string, bool) {
-	rt, err := h.Queries.GetAgentRuntimeForWorkspace(r.Context(), db.GetAgentRuntimeForWorkspaceParams{
+func (h *Handler) resolveAgentProvider(ctx context.Context, workspaceID pgtype.UUID, runtimeID pgtype.UUID) (string, bool) {
+	rt, err := h.Queries.GetAgentRuntimeForWorkspace(ctx, db.GetAgentRuntimeForWorkspaceParams{
 		ID:          runtimeID,
 		WorkspaceID: workspaceID,
 	})
