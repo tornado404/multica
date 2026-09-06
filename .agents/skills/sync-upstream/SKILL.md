@@ -1,8 +1,8 @@
 ---
 name: sync-upstream
-description: Sync this ZCode fork with upstream multica-ai/multica, rebuild the local Desktop GUI + daemon CLI, and redeploy the cloud self-host server. Use when asked to "update from upstream", "sync with the original repo", "pull in the new multica release", "update the self-host server", or after an upstream release/tag lands.
+description: Sync this ZCode fork with upstream multica-ai/multica, rebuild the local Desktop GUI + daemon CLI, and redeploy the cloud self-host server. Use when asked to "update from upstream", "sync with the original repo", "pull in the new multica release", "update the self-host server", "check the auto-update", or after an upstream release/tag lands.
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Sync fork with upstream + rebuild local Desktop/CLI + redeploy self-host
@@ -118,8 +118,34 @@ Behavior an agent must know:
   the log is `~/.multica-fork-sync/update.log`.
 - Rollback: `MULTICA_SSH_HOST=<alias> bash scripts/deploy-selfhost.sh
   --rollback` re-pins `PREV_DEPLOYED_TAG` and restarts; old images are never
-  pruned on the server. Database migrations are forward-only — for a
-  pre-upgrade dump use `--backup` (pg_dump, keeps newest 3 on the server).
+  pruned on the server. Database migrations are forward-only — every deploy
+  (manual and auto) now runs `--backup` first (pg_dump, keeps newest 3 in
+  `<remote dir>/backups/`).
+
+## Nightly automation (installed 2026-09-03)
+
+The unattended loop is a **local launchd agent** — chosen over a GitHub
+fork webhook because the images must be built on this Mac anyway (the server
+never compiles) and no public endpoint is needed; launchd also catches up
+after sleep:
+
+- Label `com.multica.fork.autoupdate`, plist at
+  `~/Library/LaunchAgents/com.multica.fork.autoupdate.plist`, runs
+  `scripts/auto-update-selfhost.sh` **daily at 04:30** with baked env
+  `MULTICA_SSH_HOST=portal-dev` and `MULTICA_REMOTE_DIR=/opt/multica`.
+- If Docker (OrbStack/Docker Desktop) is closed the script starts it and
+  waits up to 2 minutes before skipping.
+- Trigger/resume/check by hand:
+  `launchctl kickstart -k gui/$(id -u)/com.multica.fork.autoupdate`
+  or `bash scripts/auto-update-selfhost.sh [--resume|--force]`.
+- Reinstall/change schedule:
+  `MULTICA_SSH_HOST=portal-dev MULTICA_REMOTE_DIR=/opt/multica bash scripts/install-autoupdate.sh --daily --hour 4 --minute 30`
+  (`--uninstall` to remove; `--include-local` also rebuilds/installs local
+  CLI+Desktop after deploy — off by default because it quits Multica.app and
+  can interrupt agent tasks running on this Mac's runtime).
+- Watch: `tail -f ~/.multica-fork-sync/update.log`; state in
+  `~/.multica-fork-sync/state.env` (`STATUS` is `OK`,
+  `NEEDS_MANUAL_SYNC`, or a skip reason).
 - Server-side `.env` (`~/multica/.env`) pins `MULTICA_BACKEND_IMAGE` /
   `MULTICA_WEB_IMAGE` to the local tags `multica-backend` / `multica-web` and
   `MULTICA_IMAGE_TAG` to the deployed `<release>-zcode.<sha>`; business vars
