@@ -11,9 +11,12 @@ set -euo pipefail
 #      upstream/main vs. LAST_SYNCED_TAG in the state file → exit if current
 #   2. sync-upstream.sh --base <tag> --skip-tests --skip-cli --skip-desktop
 #      (rebase + go build only; conflicts → exit 3)
-#   3. deploy-selfhost.sh --tag <tag>-zcode.<sha> --auto-rollback
-#      (build on Mac → ssh ship → compose up -d → health check → roll back
-#      to the previous tag if unhealthy)
+#   3. deploy-selfhost.sh --tag <tag>-zcode.<sha> --backup --auto-rollback
+#      (pg_dump pre-upgrade → build on Mac → ssh ship → compose up -d →
+#      health check → roll back to the previous tag if unhealthy)
+#
+# If Docker (OrbStack/Docker Desktop) is not running it is started first;
+# the run is skipped (with a notification) only if it never comes up.
 #
 # Rebase conflicts cannot be resolved unattended (conventions live in
 # .agents/skills/sync-upstream/SKILL.md), so on exit 3 this script marks
@@ -28,6 +31,9 @@ set -euo pipefail
 #               --skip-rebase, then build+deploy the resolved HEAD
 #   --force     deploy even when LAST_SYNCED_TAG already matches the newest
 #               upstream release (retry a failed deploy / redeploy HEAD)
+#   --include-local   after a successful cloud deploy, also rebuild + install
+#                     the local CLI and Desktop app (quits Multica.app —
+#                     interrupts any local runtime running agent tasks)
 #   --no-notify skip macOS notifications
 #
 # State: ~/.multica-fork-sync/state.env (shared with deploy-selfhost.sh)
@@ -39,11 +45,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-RESUME=0 FORCE=0 NOTIFY=1
+RESUME=0 FORCE=0 NOTIFY=1 INCLUDE_LOCAL=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --resume) RESUME=1; shift ;;
     --force) FORCE=1; shift ;;
+    --include-local) INCLUDE_LOCAL=1; shift ;;
     --no-notify) NOTIFY=0; shift ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -112,12 +119,20 @@ derive_deploy_tag() {
 deploy_current_head() { # $1 = upstream release tag for bookkeeping
   local deploy_tag
   deploy_tag="$(derive_deploy_tag)" || return 1
-  log "deploying $deploy_tag (auto-rollback enabled)…"
-  if bash scripts/deploy-selfhost.sh --tag "$deploy_tag" --auto-rollback; then
+  log "deploying $deploy_tag (pg_dump backup + auto-rollback)…"
+  if bash scripts/deploy-selfhost.sh --tag "$deploy_tag" --backup --auto-rollback; then
     state_set LAST_SYNCED_TAG "$1"
     state_set STATUS "OK"
-    notify "Multica 自托管已更新" "✓ $deploy_tag 部署成功（服务器 $MULTICA_SSH_HOST）"
+    notify "Multica 自托管已更新" "✓ $deploy_tag 部署成功（服务器 ${MULTICA_SSH_HOST}）"
     log "✓ deployed $deploy_tag"
+    if [[ "$INCLUDE_LOCAL" -eq 1 ]]; then
+      log "--include-local: rebuilding + installing local CLI & Desktop…"
+      if bash scripts/sync-upstream.sh --skip-rebase --skip-tests; then
+        notify "Multica 本机已更新" "✓ CLI/Desktop 已更新到 ${deploy_tag}（daemon 重启后生效）"
+      else
+        notify "Multica 本机更新失败" "✗ 本地 CLI/Desktop 构建失败（云端 $deploy_tag 不受影响）；见 $STATE_DIR/update.log"
+      fi
+    fi
     return 0
   fi
   notify "Multica 部署失败" "✗ $deploy_tag 部署失败，已尝试回滚；日志: $STATE_DIR/update.log"
@@ -154,11 +169,20 @@ if [[ "$(state_get STATUS)" = "NEEDS_MANUAL_SYNC" ]]; then
   exit 0
 fi
 
-docker info >/dev/null 2>&1 || {
-  notify "Multica 自动更新跳过" "Docker Desktop 未运行"
-  log "Docker not running — skipping this run"
-  exit 0
-}
+if ! docker info >/dev/null 2>&1; then
+  log "Docker not running — trying to start it (OrbStack / Docker Desktop)…"
+  open -a OrbStack 2>/dev/null || open -a Docker 2>/dev/null || true
+  for _ in $(seq 1 24); do
+    docker info >/dev/null 2>&1 && break
+    sleep 5
+  done
+  if ! docker info >/dev/null 2>&1; then
+    notify "Multica 自动更新跳过" "Docker 未运行且自动启动失败"
+    log "Docker not running after start attempt — skipping this run"
+    exit 0
+  fi
+  log "Docker is up"
+fi
 
 log "fetching upstream (tags)…"
 if ! git fetch upstream --tags --quiet; then
@@ -210,7 +234,7 @@ case "$SYNC_RC" in
     exit 0
     ;;
   *)
-    notify "Multica 自动更新失败" "sync-upstream.sh 退出码 $SYNC_RC；见 $STATE_DIR/update.log"
+    notify "Multica 自动更新失败" "sync-upstream.sh 退出码 ${SYNC_RC}；见 $STATE_DIR/update.log"
     die "sync-upstream.sh exited with $SYNC_RC"
     ;;
 esac
