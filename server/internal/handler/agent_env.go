@@ -111,19 +111,12 @@ func (h *Handler) authorizeAgentEnv(w http.ResponseWriter, r *http.Request) (db.
 // canManageAgent (update/archive) so a member who can manage an agent
 // can also rotate its secrets.
 //
-// The owner comparison deliberately runs against member.UserID rather
-// than requestUserID(r). agent.owner_id is nullable (migration 001) and
-// uuidToString renders a NULL UUID as "", so comparing against a raw
-// header — which can also be empty — would make every NULL-owner agent
-// readable by anyone. member.UserID only exists after the membership
-// lookup succeeded, and the empty-owner guard below closes the case
-// from the other side as well.
+// The rule itself lives in canManageAgentFor, shared with the batch-update
+// path, so "who may change an agent" has exactly one definition. Its
+// member.UserID-vs-header reasoning (NULL owners must not become
+// world-writable) is documented there.
 func canManageAgentEnv(agent db.Agent, member db.Member) bool {
-	if roleAllowed(member.Role, "owner", "admin") {
-		return true
-	}
-	ownerID := uuidToString(agent.OwnerID)
-	return ownerID != "" && ownerID == uuidToString(member.UserID)
+	return canManageAgentFor(agent, member)
 }
 
 // GetAgentEnv returns the plaintext custom_env map for a single agent
