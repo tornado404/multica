@@ -302,6 +302,54 @@ else
     sleep 5
   done
   [[ "$FRONT_OK" -eq 1 ]] || warn "frontend did not answer in 60s — check: cd $REMOTE_DIR && docker compose logs frontend"
+
+  # ---- ingress checks (tailnet + public) --------------------------------------
+  # Clients reach Multica through host nginx over tailnet/LAN, and GitLab/GitHub
+  # webhooks arrive via the public domain through cloudflared. The container-local
+  # checks above exercise neither path, so probe both from this Mac.
+  TAILNET_URL="${MULTICA_TAILNET_URL:-http://m3.tail2e64b3.ts.net:8090}"
+  PUBLIC_URL="${MULTICA_PUBLIC_URL:-https://multica.dozoyen.com}"
+  TSCLI="$(command -v tailscale || true)"
+  if [[ -z "$TSCLI" && -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]]; then
+    TSCLI="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+  fi
+  if [[ -n "$TSCLI" ]] && ! "$TSCLI" status >/dev/null 2>&1; then
+    warn "tailscale not running on this Mac — skipping tailnet ingress check (soft)"
+  else
+    TS_OK=0
+    for _ in $(seq 1 12); do
+      if curl -fsS --max-time 8 "$TAILNET_URL/health" >/dev/null 2>&1; then TS_OK=1; break; fi
+      sleep 5
+    done
+    if [[ "$TS_OK" -eq 1 ]]; then
+      log "✓ tailnet ingress healthy: $TAILNET_URL"
+    else
+      warn "tailnet ingress $TAILNET_URL/health unreachable — client path broken (host nginx / tailscale / backend port?)"
+      if [[ "$AUTO_ROLLBACK" -eq 1 ]]; then
+        PREV="$(state_get PREV_DEPLOYED_TAG)"
+        if [[ -n "$PREV" && "$PREV" != "$TAG" ]]; then
+          warn "auto-rollback: re-pinning $PREV and restarting…"
+          remote_env_set MULTICA_IMAGE_TAG "$PREV"
+          remote "cd $REMOTE_DIR && docker compose -f docker-compose.selfhost.yml up -d"
+          sleep 10
+          if curl -fsS --max-time 8 "$TAILNET_URL/health" >/dev/null 2>&1; then
+            warn "rolled back to $PREV (tailnet ingress healthy)"
+          else
+            warn "rollback to $PREV: tailnet ingress still unhealthy — inspect host nginx and tailscaled"
+          fi
+        else
+          warn "auto-rollback: no PREV_DEPLOYED_TAG recorded — leaving stack as is"
+        fi
+      fi
+      die "deployment of $TAG failed (tailnet ingress unreachable)"
+    fi
+  fi
+  PUB_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$PUBLIC_URL/health" 2>/dev/null || echo 000)"
+  if [[ "$PUB_CODE" =~ ^2 ]]; then
+    log "✓ public ingress healthy: $PUBLIC_URL"
+  else
+    warn "public ingress $PUBLIC_URL/health returned $PUB_CODE — GitLab/GitHub webhooks may fail (cloudflared/nginx); NOT rolling back to avoid CF-flap false positives"
+  fi
 fi
 
 # ---- record state ------------------------------------------------------------
