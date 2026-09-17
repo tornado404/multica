@@ -231,7 +231,7 @@ fi
 # optional pre-upgrade DB dump (keeps newest 3 on the server)
 if [[ "$BACKUP" -eq 1 && "$ROLLBACK" -eq 0 ]]; then
   log "--backup: dumping postgres on the server (keeps newest 3)…"
-  remote "cd $REMOTE_DIR && mkdir -p backups && docker compose exec -T postgres \
+  remote "cd $REMOTE_DIR && mkdir -p backups && docker compose -f docker-compose.selfhost.yml exec -T postgres \
 sh -c 'pg_dump -U \"\${POSTGRES_USER:-multica}\" \"\${POSTGRES_DB:-multica}\"' | gzip \
 > backups/multica-\$(date +%Y%m%d-%H%M%S).sql.gz && ls -1t backups/multica-*.sql.gz | tail -n +4 | xargs -r rm --"
 fi
@@ -251,10 +251,10 @@ remote "cd $REMOTE_DIR && docker compose -f docker-compose.selfhost.yml up -d"
 
 # ---- health check ------------------------------------------------------------
 published_backend_port() {
-  remote_quiet "cd $REMOTE_DIR && docker compose port backend 8080 2>/dev/null" 2>/dev/null | tail -n 1 || true
+  remote_quiet "cd $REMOTE_DIR && docker compose -f docker-compose.selfhost.yml port backend 8080 2>/dev/null" 2>/dev/null | tail -n 1 || true
 }
 published_frontend_port() {
-  remote_quiet "cd $REMOTE_DIR && docker compose port frontend 3000 2>/dev/null" 2>/dev/null | tail -n 1 || true
+  remote_quiet "cd $REMOTE_DIR && docker compose -f docker-compose.selfhost.yml port frontend 3000 2>/dev/null" 2>/dev/null | tail -n 1 || true
 }
 
 backend_healthy() {
@@ -281,7 +281,7 @@ else
   done
   if ! backend_healthy; then
     warn "backend not healthy after ${HEALTH_TIMEOUT}s — last 100 backend log lines:"
-    remote "cd $REMOTE_DIR && docker compose logs backend --tail 100 --no-color"
+    remote "cd $REMOTE_DIR && docker compose -f docker-compose.selfhost.yml logs backend --tail 100 --no-color"
     if [[ "$AUTO_ROLLBACK" -eq 1 ]]; then
       PREV="$(state_get PREV_DEPLOYED_TAG)"
       if [[ -n "$PREV" && "$PREV" != "$TAG" ]]; then
@@ -301,7 +301,7 @@ else
     if frontend_reachable; then FRONT_OK=1; break; fi
     sleep 5
   done
-  [[ "$FRONT_OK" -eq 1 ]] || warn "frontend did not answer in 60s — check: cd $REMOTE_DIR && docker compose logs frontend"
+  [[ "$FRONT_OK" -eq 1 ]] || warn "frontend did not answer in 60s — check: cd $REMOTE_DIR && docker compose -f docker-compose.selfhost.yml logs frontend"
 
   # ---- ingress checks (tailnet + public) --------------------------------------
   # Clients reach Multica through host nginx over tailnet/LAN, and GitLab/GitHub
@@ -367,5 +367,5 @@ fi
 
 log "✓ deployed $BACKEND_IMAGE_NAME:$TAG + $WEB_IMAGE_NAME:$TAG to $SSH_HOST:$REMOTE_DIR"
 if [[ "$DRY_RUN" -eq 0 ]]; then
-  remote_quiet "cd $REMOTE_DIR && docker compose ps" 2>/dev/null || true
+  remote_quiet "cd $REMOTE_DIR && docker compose -f docker-compose.selfhost.yml ps" 2>/dev/null || true
 fi
