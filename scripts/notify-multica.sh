@@ -50,7 +50,9 @@ for result in ${JOB_RESULTS:-}; do
 done
 
 # Same identifier shape the server parses from PR titles and branches
-# (identifierRe in server/internal/handler/github.go). The API accepts it
+# (identifierRe in server/internal/handler/github.go). Keep this pattern
+# equivalent to identifierRe: if the server tightens its regex later, update
+# this one in lockstep or notifications silently stop matching. The API accepts it
 # case-insensitively; normalize to the server's lowercase form anyway.
 identifier=""
 for source in "${HEAD_BRANCH:-}" "${PR_TITLE:-}"; do

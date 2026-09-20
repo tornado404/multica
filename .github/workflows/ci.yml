@@ -482,12 +482,14 @@ jobs:
   # when the run finishes. This job comments the conclusion on the issue
   # linked via branch name / PR title (e.g. "ZOYEN-123") and @-mentions the
   # owner agent so Multica enqueues the review handoff. Needs every
-  # substantive job with `always()` so a red run still reports; the script is
-  # best-effort and never fails the workflow itself.
+  # substantive job with `!cancelled()` so a red run still reports while a
+  # superseded run (cancel-in-progress) stays silent instead of posting a
+  # bogus "CI failed" comment; the script is best-effort and never fails
+  # the workflow itself.
   notify-multica:
     name: multica · notify CI result
     needs: [frontend, backend, windows-execenv, installer]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
