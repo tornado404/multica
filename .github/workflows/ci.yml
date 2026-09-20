@@ -476,3 +476,34 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/install.ps1.test.ps1
+
+  # Close the loop with Multica. CI takes 10-30 minutes and the platform only
+  # consumes check-suite webhooks to refresh the PR card, so nobody gets told
+  # when the run finishes. This job comments the conclusion on the issue
+  # linked via branch name / PR title (e.g. "ZOYEN-123") and @-mentions the
+  # owner agent so Multica enqueues the review handoff. Needs every
+  # substantive job with `!cancelled()` so a red run still reports while a
+  # superseded run (cancel-in-progress) stays silent instead of posting a
+  # bogus "CI failed" comment; the script is best-effort and never fails
+  # the workflow itself.
+  notify-multica:
+    name: multica · notify CI result
+    needs: [frontend, backend, windows-execenv, installer]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Post CI result to the linked Multica issue
+        env:
+          MULTICA_URL: ${{ vars.MULTICA_URL || 'https://multica.dozoyen.com' }}
+          MULTICA_TOKEN: ${{ secrets.MULTICA_TOKEN }}
+          MULTICA_WORKSPACE_ID: ${{ vars.MULTICA_WORKSPACE_ID }}
+          MULTICA_NOTIFY_AGENT: ${{ vars.MULTICA_NOTIFY_AGENT || '项目负责人' }}
+          JOB_RESULTS: ${{ join(needs.*.result, ' ') }}
+          HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: bash scripts/notify-multica.sh
