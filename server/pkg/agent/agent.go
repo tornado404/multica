@@ -338,7 +338,7 @@ type Config struct {
 // migration 242 to add qoderclicn, migration 253 to add qwenpaw,
 // migration 254 to add reasonix, migration 313 to add dsh, migration 342 to
 // add mcode, migration 370 to add dim, migration 403 to add zeroclaw,
-// migration 441 to add codearts, and migration 491 to add zcode): a
+// migration 441 to add codearts, and migration 500 to add zcode (originally 491; renumbered past upstream v0.5.0 migrations 492-499)): a
 // custom runtime profile may only
 // be based on a backend Multica officially supports.
 // qoder and qoderclicn share the same ACP backend; keeping both provider keys
