@@ -101,7 +101,7 @@ func dialWakeupThroughEnvProxy(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	_, err := d.runTaskWakeupConnection(ctx, nil, make(chan taskWakeup, 1), make(chan struct{}))
+	_, err := d.runTaskWakeupConnection(ctx, nil, make(chan taskWakeup, 1), make(chan struct{}), make(chan struct{}))
 	t.Logf("wakeup dial returned: %v", err)
 }
 

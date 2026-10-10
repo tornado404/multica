@@ -432,11 +432,12 @@ type repoCacheBackend interface {
 
 // Daemon is the local agent runtime that polls for and executes tasks.
 type Daemon struct {
-	cfg        Config
-	client     *Client
-	repoCache  repoCacheBackend
-	skillCache *SkillBundleCache
-	logger     *slog.Logger
+	cfg           Config
+	client        *Client
+	repoCache     repoCacheBackend
+	skillCache    *SkillBundleCache
+	routeSelector *routeSelector
+	logger        *slog.Logger
 
 	// terminalReports is the durable outbox for complete/fail callbacks. The
 	// sender hook is production-wired through Client and overridable in focused
@@ -758,11 +759,18 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 	// Tag every daemon HTTP request with the daemon's CLI version so the
 	// server can split logs/metrics by client version (parallel to the CLI).
 	client.SetVersion(cfg.CLIVersion)
+
+	// Create the route selector and wire it to the client. When LanDirectAddr
+	// is empty the selector is a no-op (always RouteTunnel).
+	rs := newRouteSelector(cfg.LanDirectAddr, cfg.ServerBaseURL)
+	client.SetRouteSelector(rs)
+
 	d := &Daemon{
 		cfg:                         cfg,
 		client:                      client,
 		repoCache:                   repocache.New(cacheRoot, logger),
 		skillCache:                  NewSkillBundleCache(skillCacheRoot),
+		routeSelector:               rs,
 		logger:                      logger,
 		terminalReports:             newTerminalReportStore(cfg),
 		terminalReportWakeup:        make(chan struct{}, 1),
@@ -2159,6 +2167,17 @@ func (d *Daemon) run(ctx context.Context, healthLn net.Listener) error {
 	go d.gcLoop(ctx)
 	go d.autoUpdateLoop(ctx)
 	go d.tokenRenewalLoop(ctx)
+
+	// Start the LAN route probe loop. When MULTICA_DAEMON_LAN_DIRECT_ADDR is
+	// configured this probes the LAN endpoint every 5s and switches the
+	// daemon's HTTP + WS transport between LAN and tunnel.
+	if d.routeSelector.enabled() {
+		go d.routeSelector.run(ctx)
+		d.logger.Info("LAN route selector enabled",
+			"lan_addr", d.cfg.LanDirectAddr,
+			"probe_interval", lanProbeInterval,
+		)
+	}
 
 	// Preflight succeeded and the background loops are up: the daemon has
 	// registered its runtimes and can now claim and run tasks. Flip /health
