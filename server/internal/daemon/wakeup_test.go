@@ -93,7 +93,7 @@ func TestRunTaskWakeupConnectionSignalsDisconnect(t *testing.T) {
 	taskWakeups := make(chan taskWakeup, 2)
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := d.runTaskWakeupConnection(context.Background(), []string{"runtime-1"}, taskWakeups, make(chan struct{}))
+		_, err := d.runTaskWakeupConnection(context.Background(), []string{"runtime-1"}, taskWakeups, make(chan struct{}), make(chan struct{}))
 		errCh <- err
 	}()
 
@@ -148,7 +148,7 @@ func TestRunTaskWakeupConnectionRoutesTaskSupplementHint(t *testing.T) {
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := d.runTaskWakeupConnection(ctx, []string{"runtime-1"}, make(chan taskWakeup, 2), make(chan struct{}))
+		_, err := d.runTaskWakeupConnection(ctx, []string{"runtime-1"}, make(chan taskWakeup, 2), make(chan struct{}), make(chan struct{}))
 		errCh <- err
 	}()
 	close(sendHint)

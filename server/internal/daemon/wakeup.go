@@ -17,7 +17,10 @@ import (
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
-var errRuntimeSetChanged = errors.New("runtime set changed")
+var (
+	errRuntimeSetChanged = errors.New("runtime set changed")
+	errRouteChanged      = errors.New("route changed")
+)
 
 const (
 	taskWakeupMaxBackoff = 30 * time.Second
@@ -48,13 +51,26 @@ func (d *Daemon) taskWakeupLoop(ctx context.Context, taskWakeups chan<- taskWake
 	runtimeSetCh, unsub := d.runtimeSet.Subscribe()
 	defer unsub()
 
+	// Subscribe to route changes so the WS reconnects immediately on a route
+	// switch rather than waiting out the backoff timer.
+	var routeChangeCh <-chan struct{}
+	var unsubRoute func()
+	if d.routeSelector != nil && d.routeSelector.routeChanges != nil {
+		routeChangeCh, unsubRoute = d.routeSelector.routeChanges.Subscribe()
+		defer unsubRoute()
+	}
+
 	for {
 		runtimeIDs := d.allRuntimeIDs()
-		connectedFor, err := d.runTaskWakeupConnection(ctx, runtimeIDs, taskWakeups, runtimeSetCh)
+		connectedFor, err := d.runTaskWakeupConnection(ctx, runtimeIDs, taskWakeups, runtimeSetCh, routeChangeCh)
 		if ctx.Err() != nil {
 			return
 		}
 		if errors.Is(err, errRuntimeSetChanged) {
+			backoff = time.Second
+			continue
+		}
+		if errors.Is(err, errRouteChanged) {
 			backoff = time.Second
 			continue
 		}
@@ -65,7 +81,7 @@ func (d *Daemon) taskWakeupLoop(ctx context.Context, taskWakeups chan<- taskWake
 			d.logger.Debug("task wakeup websocket unavailable; polling fallback remains active", "error", err, "retry_in", backoff)
 		}
 
-		if err := sleepWithContextOrRuntimeChange(ctx, jitterDuration(backoff), runtimeSetCh); err != nil {
+		if err := sleepWithContextOrRouteChange(ctx, jitterDuration(backoff), runtimeSetCh, routeChangeCh); err != nil {
 			return
 		}
 		if backoff < taskWakeupMaxBackoff {
@@ -74,6 +90,24 @@ func (d *Daemon) taskWakeupLoop(ctx context.Context, taskWakeups chan<- taskWake
 				backoff = taskWakeupMaxBackoff
 			}
 		}
+	}
+}
+
+// sleepWithContextOrRouteChange is like sleepWithContextOrRuntimeChange but
+// also wakes on route-change notifications. A nil routeChangeCh is ignored.
+func sleepWithContextOrRouteChange(ctx context.Context, d time.Duration, runtimeSetCh <-chan struct{}, routeChangeCh <-chan struct{}) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-runtimeSetCh:
+		return nil
+	case <-routeChangeCh:
+		return nil
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -96,7 +130,7 @@ func jitterDuration(d time.Duration) time.Duration {
 	return d + delta
 }
 
-func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []string, taskWakeups chan<- taskWakeup, runtimeSetCh <-chan struct{}) (time.Duration, error) {
+func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []string, taskWakeups chan<- taskWakeup, runtimeSetCh <-chan struct{}, routeChangeCh <-chan struct{}) (time.Duration, error) {
 	wsURL, err := taskWakeupURL(d.cfg.ServerBaseURL, runtimeIDs)
 	if err != nil {
 		return 0, err
@@ -127,11 +161,18 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 	// before consulting Proxy, so HTTPS_PROXY applies to this dial. With no
 	// proxy variables set, ProxyFromEnvironment returns nil and the connection
 	// is direct, exactly as before.
-	dialer := websocket.Dialer{
+	//
+	// When a route selector is configured and the current route is LAN, the
+	// dialer uses the selector's dialContext to redirect the TCP connection to
+	// the LAN address while preserving the original hostname for TLS.
+	wsDialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 		Proxy:            http.ProxyFromEnvironment,
 	}
-	conn, _, err := dialer.DialContext(ctx, wsURL, headers)
+	if d.routeSelector != nil {
+		wsDialer.NetDialContext = d.routeSelector.dialContext()
+	}
+	conn, _, err := wsDialer.DialContext(ctx, wsURL, headers)
 	if err != nil {
 		return 0, err
 	}
@@ -254,6 +295,8 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 		return uptime(), ctx.Err()
 	case <-runtimeSetCh:
 		return uptime(), errRuntimeSetChanged
+	case <-routeChangeCh:
+		return uptime(), errRouteChanged
 	case err := <-errCh:
 		return uptime(), err
 	}
