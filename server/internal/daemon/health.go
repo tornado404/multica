@@ -83,6 +83,10 @@ type HealthResponse struct {
 	// older consumers see no change. Diagnostic only: nothing keys off it.
 	ReloadPendingReason string            `json:"reload_pending_reason,omitempty"`
 	Workspaces          []healthWorkspace `json:"workspaces"`
+	// Route is the current network route selected by the LAN direct address
+	// probe. Values: "lan", "tunnel", or "disabled" when no LAN direct
+	// address is configured.
+	Route string `json:"route"`
 }
 
 type healthWorkspace struct {
@@ -351,9 +355,11 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 			ResourceWaitTaskCount: d.resourceWaitTasks.Load(),
 			Agents:                agents,
 			SkippedAgents:         d.skippedAgentsSnapshot(),
-
-			ReloadPendingReason: d.reloadPending(),
-			Workspaces:          wsList,
+			ReloadPendingReason:   d.reloadPending(),
+			Workspaces:            wsList,
+		}
+		if d.routeSelector != nil {
+			resp.Route = d.routeSelector.status()
 		}
 		if reporter, ok := d.repoCache.(interface{ Activity() repocache.Activity }); ok {
 			activity := reporter.Activity()

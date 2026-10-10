@@ -103,6 +103,11 @@ type Client struct {
 	// claim but not a multi-megabyte body read. (GitHub #4505)
 	bundleClient *http.Client
 
+	// routeSelector is optional. When set, the client's transport delegates
+	// to it so that route switches (LAN <-> tunnel) take effect on new
+	// connections. Nil means the client uses the default transport only.
+	routeSelector *routeSelector
+
 	// Identity headers sent on every request as X-Client-*. Populated by
 	// SetIdentity(); empty values are simply omitted.
 	platform string
@@ -139,11 +144,28 @@ func cloneDefaultTransport() http.RoundTripper {
 // CloseIdleConnections drops pooled control-plane HTTP connections. The
 // daemon calls this after repeated heartbeat transport failures so a stale
 // keep-alive socket from a server restart cannot delay recovery indefinitely.
+// When a route selector is configured it also closes idle connections on
+// both route transports so a route switch doesn't reuse stale connections.
 func (c *Client) CloseIdleConnections() {
 	if c == nil || c.client == nil {
 		return
 	}
 	c.client.CloseIdleConnections()
+	if c.routeSelector != nil {
+		c.routeSelector.closeIdleConnections()
+	}
+}
+
+// SetRouteSelector attaches a route selector to the client. When non-nil the
+// client's transport delegates to the selector so route switches take effect
+// on new connections. Passing nil detaches the selector.
+func (c *Client) SetRouteSelector(rs *routeSelector) {
+	c.routeSelector = rs
+	if rs != nil {
+		c.client.Transport = rs.roundTripper()
+	} else {
+		c.client.Transport = cloneDefaultTransport()
+	}
 }
 
 // normalizeGOOS maps Go's runtime.GOOS values to the protocol vocabulary
