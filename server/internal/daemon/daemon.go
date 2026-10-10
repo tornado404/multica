@@ -2151,6 +2151,19 @@ func (d *Daemon) run(ctx context.Context, healthLn net.Listener) error {
 	// invariant (renew first) is enforced at one site instead of
 	// scattered into Run, and tests can exercise the failure paths
 	// without the full Run setup.
+	//
+	// When a LAN direct address is configured, do a synchronous initial
+	// probe before preflightAuth so the route is already set to LAN (if
+	// reachable) before the first API call. Without this, preflightAuth
+	// would attempt the tunnel route first and fail if the tunnel is down
+	// but the LAN is reachable.
+	if d.routeSelector.enabled() {
+		initCtx, initCancel := context.WithTimeout(ctx, lanProbeTimeout*time.Duration(lanProbeConfirmCount))
+		for i := int64(0); i < lanProbeConfirmCount; i++ {
+			d.routeSelector.doProbe(initCtx)
+		}
+		initCancel()
+	}
 	if err := d.preflightAuth(ctx); err != nil {
 		return err
 	}
