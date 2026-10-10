@@ -131,6 +131,11 @@ type Config struct {
 	AutoUpdateEnabled              bool                  // periodically check for a newer CLI release and self-update when idle (default: true on Multica Cloud, false on self-host)
 	AutoUpdateCheckInterval        time.Duration         // how often the auto-update loop polls for a new release (default: 6h)
 	AutoReloadEnabled              bool                  // restart when the multica binary on disk no longer matches the running version (default: true for CLI-launched daemons)
+	// LanDirectAddr is an optional LAN direct address (e.g. "192.168.31.201:8443").
+	// When set, the daemon probes this address and, if reachable, redirects
+	// its server TCP connections to it while preserving TLS verification
+	// against the original server hostname. Empty disables the feature.
+	LanDirectAddr string
 	PollInterval                   time.Duration
 	WSClaimPollInterval            time.Duration // upper bound for healthy WS batch-claim safety polls; actual sleeps use downward-only jitter
 	HeartbeatInterval              time.Duration
@@ -619,6 +624,9 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		autoReloadEnabled = false
 	}
 
+	// LAN direct address: env only (no CLI override yet).
+	lanDirectAddr := strings.TrimSpace(os.Getenv("MULTICA_DAEMON_LAN_DIRECT_ADDR"))
+
 	return Config{
 		ServerBaseURL:                   serverBaseURL,
 		DaemonID:                        daemonID,
@@ -644,6 +652,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		AutoUpdateEnabled:               autoUpdateEnabled,
 		AutoUpdateCheckInterval:         autoUpdateInterval,
 		AutoReloadEnabled:               autoReloadEnabled,
+		LanDirectAddr:                   lanDirectAddr,
 		HealthPort:                      healthPort,
 		MaxConcurrentTasks:              maxConcurrentTasks,
 		PollInterval:                    pollInterval,

@@ -106,6 +106,11 @@ type Client struct {
 	// claim but not a multi-megabyte body read. (GitHub #4505)
 	bundleClient *http.Client
 
+	// routeSelector is optional. When set, the client's transport delegates
+	// to it so that route switches (LAN <-> tunnel) take effect on new
+	// connections. Nil means the client uses the default transport only.
+	routeSelector *routeSelector
+
 	// Identity headers sent on every request as X-Client-*. Populated by
 	// SetIdentity(); empty values are simply omitted.
 	platform string
@@ -135,6 +140,8 @@ func NewClient(baseURL string) *Client {
 // CloseIdleConnections drops pooled daemon HTTP connections. The
 // daemon calls this after repeated heartbeat transport failures so a stale
 // keep-alive socket from a server restart cannot delay recovery indefinitely.
+// When a route selector is configured it also closes idle connections on
+// both route transports so a route switch doesn't reuse stale connections.
 func (c *Client) CloseIdleConnections() {
 	if c == nil {
 		return
@@ -144,6 +151,28 @@ func (c *Client) CloseIdleConnections() {
 	}
 	if c.bundleClient != nil {
 		c.bundleClient.CloseIdleConnections()
+	}
+	if c.routeSelector != nil {
+		c.routeSelector.closeIdleConnections()
+	}
+}
+
+// SetRouteSelector attaches a route selector to the client. When non-nil the
+// client's transports delegate to it so route switches take effect on new
+// connections. The bundle client follows the same route as API traffic.
+// Passing nil detaches the selector.
+func (c *Client) SetRouteSelector(rs *routeSelector) {
+	if c == nil || c.client == nil || c.bundleClient == nil {
+		return
+	}
+	c.routeSelector = rs
+	if rs != nil {
+		rt := rs.roundTripper()
+		c.client.Transport = rt
+		c.bundleClient.Transport = rt
+	} else {
+		c.client.Transport = httptransport.CloneDefault()
+		c.bundleClient.Transport = httptransport.CloneDefault()
 	}
 }
 
