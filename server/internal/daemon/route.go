@@ -107,11 +107,15 @@ func (rs *routeSelector) buildLANTransport() *http.Transport {
 		serverName = host
 	}
 
+	lanDialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
 	return &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return lanDialer.DialContext(ctx, network, rs.lanAddr)
+		},
 		TLSClientConfig: &tls.Config{
 			ServerName:         serverName,
 			InsecureSkipVerify: false,
@@ -155,6 +159,9 @@ func (rs *routeSelector) setRoute(r Route) {
 		return
 	}
 	rs.current.Store(r)
+	// Stale keep-alive sockets from the old route must not be reused after
+	// the switch; drop them before any request observes the new route.
+	rs.closeIdleConnections()
 	rs.mu.Lock()
 	rs.notifyLocked(old, r)
 	rs.mu.Unlock()

@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -200,5 +202,109 @@ func TestRouteSelectorTransportSelection(t *testing.T) {
 	rs.setRoute(RouteLAN)
 	if rs.transport() != rs.lanTransport {
 		t.Fatal("expected LAN transport on LAN route")
+	}
+}
+
+// TestRouteSelectorLANTransportDialsLANAddr is the regression test for the
+// LAN HTTP transport: it must dial rs.lanAddr regardless of the addr derived
+// from the request URL. The first implementation dialed the request's addr
+// (the tunnel host), so "LAN" traffic still left through the tunnel.
+func TestRouteSelectorLANTransportDialsLANAddr(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer ln.Close()
+
+	rs := newRouteSelector(ln.Addr().String(), "https://mc.dozoyen.com:40816")
+	tr := rs.buildLANTransport()
+
+	// The addr argument comes from the request URL; it must be ignored in
+	// favour of the LAN address. An invalid IP would fail the dial instantly
+	// if the transport regressed to dialing it.
+	conn, err := tr.DialContext(context.Background(), "tcp", "256.256.256.256:1")
+	if err != nil {
+		t.Fatalf("LAN transport did not dial the LAN address: %v", err)
+	}
+	conn.Close()
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			accepted <- c
+		}
+	}()
+	select {
+	case c := <-accepted:
+		c.Close()
+	case <-time.After(time.Second):
+		t.Fatal("LAN listener never accepted the connection")
+	}
+}
+
+// TestRouteSelectorLANRequestKeepsOriginalHost verifies an end-to-end request
+// on the LAN route: the TCP connection lands on the LAN endpoint while the
+// URL hostname is preserved in the Host header (and as TLS ServerName).
+func TestRouteSelectorLANRequestKeepsOriginalHost(t *testing.T) {
+	var gotHost atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost.Store(r.Host)
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+
+	rs := newRouteSelector(srv.Listener.Addr().String(), "http://mc.dozoyen.com:40816")
+	rs.setRoute(RouteLAN)
+
+	if got := rs.lanTransport.(*http.Transport).TLSClientConfig.ServerName; got != "mc.dozoyen.com" {
+		t.Fatalf("expected TLS ServerName mc.dozoyen.com, got %q", got)
+	}
+
+	client := &http.Client{Transport: rs.roundTripper(), Timeout: 5 * time.Second}
+	resp, err := client.Get("http://mc.dozoyen.com:40816/api/v1/ping")
+	if err != nil {
+		t.Fatalf("request via LAN route failed: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if host := gotHost.Load(); host != "mc.dozoyen.com:40816" {
+		t.Fatalf("expected Host header mc.dozoyen.com:40816, got %v", host)
+	}
+	if string(body) != "ok" {
+		t.Fatalf("expected body ok, got %q", string(body))
+	}
+}
+
+// TestSetRouteSelectorRoutesBundleClient verifies the bundle client follows
+// the selector too, and that detaching restores the default transports.
+func TestSetRouteSelectorRoutesBundleClient(t *testing.T) {
+	c := NewClient("https://mc.dozoyen.com:40816")
+	if c.bundleClient.Transport != nil {
+		t.Fatal("expected nil bundle transport before selector is attached")
+	}
+
+	rs := newRouteSelector("192.168.31.201:8443", "https://mc.dozoyen.com:40816")
+	c.SetRouteSelector(rs)
+
+	rt, ok := c.client.Transport.(*routeRoundTripper)
+	if !ok || rt.rs != rs {
+		t.Fatal("expected client transport to delegate to the selector")
+	}
+	if c.bundleClient.Transport != c.client.Transport {
+		t.Fatal("expected bundle client to share the selector round tripper")
+	}
+
+	c.SetRouteSelector(nil)
+	if c.bundleClient.Transport != nil {
+		t.Fatal("expected nil bundle transport after detach")
+	}
+	if _, ok := c.client.Transport.(*routeRoundTripper); ok {
+		t.Fatal("expected client transport restored after detach")
 	}
 }
