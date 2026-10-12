@@ -6,7 +6,7 @@ set -euo pipefail
 # upstream multica release. Scheduled weekly by install-autoupdate.sh
 # (launchd); also fine to run by hand.
 #
-# Loop (never builds on the server, never touches origin):
+# Loop (never builds on the server):
 #   1. git fetch upstream --tags; latest v* release reachable from
 #      upstream/main vs. LAST_SYNCED_TAG in the state file → exit if current
 #   2. sync-upstream.sh --base <tag> --skip-tests --skip-cli --skip-desktop
@@ -14,6 +14,9 @@ set -euo pipefail
 #   3. deploy-selfhost.sh --tag <tag>-zcode.<sha> --backup --auto-rollback
 #      (pg_dump pre-upgrade → build on Mac → ssh ship → compose up -d →
 #      health check → roll back to the previous tag if unhealthy)
+#   4. push the rebased branch to origin (the fork) with --force-with-lease —
+#      rebase rewrites history so a plain push would be rejected; a failed
+#      push is notified but never fails the cycle (retried next run)
 #
 # If Docker (OrbStack/Docker Desktop) is not running it is started first;
 # the run is skipped (with a notification) only if it never comes up.
@@ -116,6 +119,23 @@ derive_deploy_tag() {
   printf '%s-zcode.%s' "$t" "$(git rev-parse --short HEAD)"
 }
 
+push_branch_to_fork() {
+  local branch
+  branch="$(git branch --show-current)"
+  if [[ -z "$branch" ]]; then
+    log "detached HEAD — skipping fork push"
+    return 0
+  fi
+  log "pushing $branch to origin (fork, --force-with-lease)…"
+  if git push --force-with-lease origin "$branch"; then
+    log "✓ pushed $branch to origin"
+  else
+    # Non-fatal: the cloud deploy already succeeded; the next run retries.
+    notify "Multica fork 推送失败" "✗ $branch 推送 origin 失败（部署不受影响）；见 $STATE_DIR/update.log"
+    log "push to origin failed — deploy unaffected; will retry next run"
+  fi
+}
+
 deploy_current_head() { # $1 = upstream release tag for bookkeeping
   local deploy_tag
   deploy_tag="$(derive_deploy_tag)" || return 1
@@ -125,6 +145,7 @@ deploy_current_head() { # $1 = upstream release tag for bookkeeping
     state_set STATUS "OK"
     notify "Multica 自托管已更新" "✓ $deploy_tag 部署成功（服务器 ${MULTICA_SSH_HOST}）"
     log "✓ deployed $deploy_tag"
+    push_branch_to_fork
     if [[ "$INCLUDE_LOCAL" -eq 1 ]]; then
       log "--include-local: rebuilding + installing local CLI & Desktop…"
       if bash scripts/sync-upstream.sh --skip-rebase --skip-tests; then
