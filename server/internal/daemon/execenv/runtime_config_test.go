@@ -207,12 +207,18 @@ func TestStatusRuleIsFactJudgmentAtBothMoments(t *testing.T) {
 		"the board should show the issue being worked while you work, not only after",
 		// No assignee gate: the judgment applies to whoever is running.
 		"whoever the assignee is",
-		// Delivery lands in in_review and the ceiling keeps `done` human.
-		"`done` stays human",
+		// Delivery closes the issue itself once verified: done is the
+		// default landing (fork policy — human review is opt-in, not the
+		// ceiling), and the coding chain names the verification.
+		"close it out yourself",
+		"stage barriers and parent notifications fire on that terminal write",
+		"every PR merged with CI/unit tests green",
+		// in_review survives only as an explicit carve-out.
+		"reserves acceptance for a human",
 		// Assigned deliverables must not be misread as status-neutral
 		// research: stage barriers and parent notifications key off the
-		// delivery write.
-		"stage barriers and parent notifications depend on that signal",
+		// terminal write.
+		"never status-neutral",
 		// Invariant 1: conversation does not move the board. Ancillary is
 		// defined by OUTPUT (no part of the issue's own deliverable), not by
 		// activity words like "research" that also describe real work.
@@ -244,6 +250,9 @@ func TestStatusRuleIsFactJudgmentAtBothMoments(t *testing.T) {
 		// The example that misled the MUL-6460 run: research that IS the
 		// issue's ask pattern-matched an example meant for consult pull-ins.
 		"asked to research stays",
+		// Fork policy: the human-review ceiling must not come back as the
+		// unconditional default landing.
+		"`done` stays human",
 		// Activity-word lists must not come back in EITHER direction — the
 		// negative lists are the failure class behind the research and
 		// review cases, and the positive form-list ("in whatever form:

@@ -471,6 +471,7 @@ func TestPlatformSkillCoversPlatformContracts(t *testing.T) {
 				"stop editing the PR blind",
 				"whether the installation is bound to this workspace",
 				"redelivered once the receiving side is fixed",
+				"A delivery PR defaults to a closing keyword",
 				"include the PR URL when a PR exists",
 				"Closes MUL-123",
 				"--status backlog",

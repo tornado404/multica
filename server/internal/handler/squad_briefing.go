@@ -116,11 +116,12 @@ const squadParentStatusOwned = `6. **Own the parent issue status.** This issue i
    changes). On the first assignment turn, move the parent to
    ` + "`" + `in_progress` + "`" + ` and keep it there while members work — a successful
    dispatch is not completion. On later turns, do not flip status for
-   routine progress updates. When you confirm the overall goal is met, run
-   ` + "`" + `multica issue status <issue-id> in_review` + "`" + ` — this responsibility is
-   itself the standing instruction that authorizes that change, so do it even
-   when no comment asked you to. Leave ` + "`" + `done` + "`" + ` to a human reviewer or
-   existing integrations (for example a PR with close intent that merges).`
+   routine progress updates. When you confirm the overall goal is met and
+   delivery is verified (for code work: PRs merged with CI/unit tests
+   green), run ` + "`" + `multica issue status <issue-id> done` + "`" + ` — this
+   responsibility is itself the standing instruction that authorizes that
+   change, so do it even when no comment asked you to. Use ` + "`" + `in_review` + "`" + `
+   instead only when the issue explicitly reserves acceptance for a human.`
 
 // leaderWorkflow says whether an owning leader's issue follows a project
 // workflow that came with the claim, and whether the daemon's runtime brief

@@ -15,7 +15,7 @@ import (
 // other: the squad briefing (server-side, appended to the leader's
 // Instructions) and the runtime brief (daemon-side CLAUDE.md). Asserting each
 // half in isolation is exactly how the original contradiction shipped — the
-// briefing said "move it to in_review when the goal is met" while the runtime
+// briefing said "close it when the goal is met" while the runtime
 // brief said "do not change status unless the comment asks", and a member's
 // delivery comment never asks.
 //
@@ -68,7 +68,7 @@ func TestSquadAssignedLeaderCanWrapUpOnCommentTurn(t *testing.T) {
 	for _, want := range []string{
 		// MUL-6417: the brief's status rule is a fact judgment, and the
 		// leader bullet must point the same way as the briefing's grant —
-		// in_review is reached on the confirming turn, not on dispatch.
+		// the close is reached on the confirming turn, not on dispatch.
 		"dispatching members is not delivery",
 		"a dispatch turn leaves the parent `in_progress`",
 		"where you confirm the overall goal is met",
@@ -78,9 +78,10 @@ func TestSquadAssignedLeaderCanWrapUpOnCommentTurn(t *testing.T) {
 		}
 	}
 
-	// End to end: both halves must agree that in_review is reachable here.
+	// End to end: both halves must agree that the owning leader can close
+	// the parent out (fork policy: done is self-service once verified).
 	combined := briefing + "\n" + brief
-	if !strings.Contains(combined, "multica issue status <issue-id> in_review") {
+	if !strings.Contains(combined, "multica issue status <issue-id> done") {
 		t.Error("combined instructions never tell the owning leader how to wrap up")
 	}
 }
@@ -119,9 +120,14 @@ func TestGuestLeaderCannotChangeStatusOnCommentTurn(t *testing.T) {
 		t.Errorf("guest leader must not receive the status-ownership grant:\n%s", briefing)
 	}
 	combined := briefing + "\n" + brief
-	if strings.Contains(combined, "multica issue status <issue-id> in_review") {
-		t.Error("combined instructions hand a guest leader an in_review command for " +
-			"an issue assigned to someone else")
+	for _, banned := range []string{
+		"multica issue status <issue-id> in_review",
+		"multica issue status <issue-id> done",
+	} {
+		if strings.Contains(combined, banned) {
+			t.Errorf("combined instructions hand a guest leader a runnable status close (%q) for "+
+				"an issue assigned to someone else", banned)
+		}
 	}
 	// The prohibition wraps across source lines, so match on compacted text.
 	compact := strings.Join(strings.Fields(briefing), " ")
