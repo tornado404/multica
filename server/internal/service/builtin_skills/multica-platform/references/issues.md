@@ -43,10 +43,13 @@ instead of pretending the run is complete.
 
 To make the PR show on the issue, put a routable issue key in the PR **title**
 (preferred) or the **branch**. A key that appears only as a bare mention in the
-body links nothing.
+body links nothing. A delivery PR defaults to a closing keyword (`Closes` /
+`Fixes` / `Resolves`) so the merge itself advances the issue to `done` — drop
+the keyword only when the issue explicitly reserves acceptance for a human.
 
 ```text
-MUL-123: fix login redirect        # key in title → links
+MUL-123: fix login redirect        # key anywhere in title → links
+Closes MUL-123                     # default: merge marks the issue done
 Part of MUL-123                    # body mention only → no link at all
 ```
 
@@ -232,20 +235,26 @@ archived statuses remain readable via an explicit status filter.
   turn that advances the issue's own ask sets `in_progress` as soon as that
   is known, so the board shows the work while it runs; a blocker is recorded
   when it is hit; and the turn must not exit with a stale value — delivered
-  the issue's own ask → `in_review`; work continues beyond the turn
+  and verified the issue's own ask → `done` (for code work: PRs merged with
+  CI/unit tests green); work continues beyond the turn
   (dispatched sub-issues, partial delivery) → `in_progress`; stuck →
-  `blocked`. A turn that produces none of the issue's own deliverable —
+  `blocked`. Write `in_review` only when the issue explicitly reserves
+  acceptance for a human. A turn that produces none of the issue's own deliverable —
   answering a question, consulting on work owned elsewhere — writes nothing
   at any point. The kind of activity never decides this: research, design,
   planning, and review all count as the work exactly when they are what the
   issue asks for (a review-the-PR issue is being worked the moment reviewing
   starts). Questions, discussion, or acknowledgements never move the status.
   Squad leaders: dispatching members is not delivery — a dispatch turn
-  leaves the parent `in_progress`, and it moves to `in_review` only when a
+  leaves the parent `in_progress`, and it closes (`done`) only when a
   later re-trigger confirms the overall goal is met.
-- **`in_review`** is an accepted issue status. Some workflows use it while a PR
-  is open and awaiting review; moving to it is an explicit mutation.
-- **`done`** on a child issue can wake its parent's assignee (see Stages).
+- **`in_review`** marks delivery explicitly held for human acceptance — use
+  it only when the issue itself reserves acceptance (some workflows also use
+  it while a PR is open and awaiting review). Moving to it is an explicit
+  mutation.
+- **`done`** on a child issue can wake its parent's assignee. If a PR
+  carries close intent (`Closes MUL-XXXX`), it advances the issue to `done`
+  itself on merge — you do not also need to flip it manually.
 - **`cancelled`** is a terminal, user-driven decision to close the issue. Like
   `done` it enqueues no new agent work, but it does **not** stop tasks already in
   flight — a run in progress keeps going. To stop a running task, cancel the
