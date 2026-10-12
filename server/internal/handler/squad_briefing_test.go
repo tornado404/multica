@@ -35,6 +35,7 @@ func TestSquadOperatingProtocolScopesParentStatusOwnership(t *testing.T) {
 	for _, forbidden := range []string{
 		"Own the parent issue status",
 		"multica issue status <issue-id> in_review",
+		"multica issue status <issue-id> done",
 	} {
 		if strings.Contains(compactGuest, forbidden) {
 			t.Errorf("guest-leader protocol must not contain status grant %q\n--- protocol ---\n%s", forbidden, guest)

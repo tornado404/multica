@@ -47,10 +47,12 @@ var childDoneCondition = json.RawMessage(`{"type":"children_done","each_stage":t
 // ChildDoneDefaultInstruction is what the woken assignee is asked to do when
 // neither the issue nor the workspace sets an instruction. The trigger facts
 // say which stage closed, which one is next and how many were cancelled.
+// Fork policy: verified delivery closes the issue; in_review is the opt-in
+// carve-out for issues that reserve acceptance for a human.
 const ChildDoneDefaultInstruction = "Sub-issues of this issue have closed; the trigger facts list each stage and which one is next. " +
 	"If a later stage is waiting, check that its dependencies are met, then move its sub-issues out of backlog so they start. " +
 	"If a sub-issue in the closed stages was cancelled rather than finished, decide whether its work is still needed before advancing. " +
-	"When every sub-issue is closed, bring their results together on this issue and move it forward, or mark it ready for review when nothing remains."
+	"When every sub-issue is closed, bring their results together on this issue and move it forward, or close it as `done` when nothing remains — write `in_review` instead only when the issue explicitly reserves acceptance for a human."
 
 // SystemWakeupDefault is the rule's workspace default: whether it is on and
 // the instruction set for the workspace ("" when none).
