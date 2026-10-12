@@ -160,13 +160,18 @@ func (c *Client) CloseIdleConnections() {
 
 // SetRouteSelector attaches a route selector to the client. When non-nil the
 // client's transport delegates to the selector so route switches take effect
-// on new connections. Passing nil detaches the selector.
+// on new connections. The bundle client is routed too: skill bundles are the
+// largest payloads the daemon pulls and must follow the same route. Passing
+// nil detaches the selector.
 func (c *Client) SetRouteSelector(rs *routeSelector) {
 	c.routeSelector = rs
 	if rs != nil {
-		c.client.Transport = rs.roundTripper()
+		rt := rs.roundTripper()
+		c.client.Transport = rt
+		c.bundleClient.Transport = rt
 	} else {
 		c.client.Transport = cloneDefaultTransport()
+		c.bundleClient.Transport = nil
 	}
 }
 
