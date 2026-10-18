@@ -1,5 +1,5 @@
 -- Revert ZCode (`zcode`) from the built-in runtime profile protocol whitelist,
--- restoring the constraint as migration 441 (codearts) defined it.
+-- restoring the constraint as upstream migration 583 (muse) defined it.
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
 ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
@@ -27,6 +27,7 @@ ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
         'qwen',
         'qwenpaw',
         'mcode',
+        'muse',
         'dim',
         'zeroclaw'
     )) NOT VALID;
