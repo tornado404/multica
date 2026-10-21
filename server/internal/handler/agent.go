@@ -2185,12 +2185,12 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// thinking_level / service_tier clears run through the shared swap applier so
-	// this endpoint and the batch endpoint restore NULL identically. The applied
-	// error names just the column, which keeps the message callers saw before
-	// this refactor ("failed to clear thinking_level: <db error>") verbatim.
+	// this endpoint and the batch endpoint restore NULL identically. The public
+	// copy stays generic so no infrastructure detail leaks; the cause is logged
+	// above.
 	if updated, err = agentSwap.apply(r.Context(), h.Queries, updated); err != nil {
 		slog.Warn("clear agent runtime override failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
-		writeError(w, http.StatusInternalServerError, "failed to clear "+err.Error())
+		writeError(w, http.StatusInternalServerError, "failed to clear runtime override")
 		return
 	}
 	if shouldClearComposioAllowlist {
@@ -2222,9 +2222,9 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("update agent: response build failed", append(logger.RequestAttrs(r), "error", finErr, "agent_id", id)...)
 		switch {
 		case errors.Is(finErr, errAgentTargetsFetch):
-			writeError(w, http.StatusInternalServerError, errAgentTargetsFetch.Error())
+			writeError(w, http.StatusInternalServerError, "failed to load agent invocation targets")
 		case errors.Is(finErr, errAgentSkillsFetch):
-			writeError(w, http.StatusInternalServerError, errAgentSkillsFetch.Error())
+			writeError(w, http.StatusInternalServerError, "failed to load agent skills")
 		default:
 			writeError(w, http.StatusInternalServerError, "failed to update agent")
 		}
