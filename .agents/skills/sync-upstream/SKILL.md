@@ -65,12 +65,22 @@ preference: upstream > fork.
   every copy.
 - Desktop signing: default is ad-hoc, which changes the cdhash on every build
   and therefore resets macOS TCC grants (Full Disk Access, Screen Recording).
-  Set `MULTICA_CODESIGN_IDENTITY=<cert name>` to sign with a stable identity
-  (a self-signed "Code Signing" certificate from Keychain Access is enough)
-  so permissions survive updates. Old app is kept as
-  `/Applications/Multica.app.bak-<version>`; delete those once the new build
-  is verified — duplicate bundles with the same bundle id but a different
-  cdhash are what makes macOS re-prompt or show duplicate TCC entries.
+  This machine signs with `MULTICA_CODESIGN_IDENTITY="Multica Local Signing"`
+  (a self-signed "Code Signing" certificate), giving a stable designated
+  requirement — `identifier "ai.multica.desktop" and certificate leaf = H"…"`
+  — so permissions survive rebuilds. A freshly created self-signed cert must
+  be trusted first, or `codesign` reports `CSSMERR_TP_NOT_TRUSTED` and no
+  identity is valid:
+  `security find-certificate -c "Multica Local Signing" -p > /tmp/cert.pem &&
+   security add-trusted-cert -p codeSign -r trustRoot -k ~/Library/Keychains/login.keychain-db /tmp/cert.pem`
+  The identity is baked into the launchd update agent by
+  `install-autoupdate.sh` (together with `MULTICA_PLATFORM`); re-run it with
+  those variables set whenever the schedule is reinstalled.
+  Old app is kept as `/Applications/Multica.app.bak-<version>`; delete those
+  once the new build is verified — duplicate bundles with the same bundle id
+  but a different cdhash are what makes macOS re-prompt or show duplicate TCC
+  entries. Switching from ad-hoc to the certificate re-prompts once, because
+  the app's identity changes; later updates keep the grants.
 - pnpm/node live under nvm; non-interactive shells need
   `PATH="$HOME/.nvm/versions/node/<latest>/bin:$PATH"`.
 - Daemons restart per profile — check for active agent tasks BEFORE

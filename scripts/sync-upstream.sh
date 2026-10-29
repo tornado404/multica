@@ -172,7 +172,7 @@ if [[ "$SKIP_DESKTOP" -eq 0 ]]; then
   ensure_pnpm
   log "installing JS deps (lockfile may have moved upstream)…"
   pnpm install --frozen-lockfile || pnpm install
-  log "packaging Desktop (mac arm64, ad-hoc signature)…"
+  log "packaging Desktop (mac arm64)…"
   # package.mjs compiles the matching Go CLI into the app automatically.
   #
   # Ad-hoc signing (the default) gives every build a new cdhash, and macOS
@@ -181,7 +181,7 @@ if [[ "$SKIP_DESKTOP" -eq 0 ]]; then
   # to a stable certificate name (a self-signed "Code Signing" cert from
   # Keychain Access is enough) to keep one identity across rebuilds.
   if [[ -n "${MULTICA_CODESIGN_IDENTITY:-}" ]]; then
-    log "signing Desktop with $MULTICA_CODESIGN_IDENTITY…"
+    log "signing Desktop with ${MULTICA_CODESIGN_IDENTITY}"
     CSC_IDENTITY_AUTO_DISCOVERY=true CSC_NAME="$MULTICA_CODESIGN_IDENTITY" \
       pnpm --filter @multica/desktop run package -- --mac --arm64
   else
