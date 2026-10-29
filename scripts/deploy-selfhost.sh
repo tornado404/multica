@@ -161,6 +161,7 @@ fi
 if [[ "$ROLLBACK" -eq 0 && "$SKIP_BUILD" -eq 0 ]]; then
   docker buildx version >/dev/null 2>&1 || die "docker buildx not available"
   VERSION_ARG="${TAG%%-fork.*}"
+  [[ "$VERSION_ARG" == "$TAG" ]] && VERSION_ARG="${TAG%%-zcode.*}"
   COMMIT_SHA="$(git rev-parse --short HEAD)"
   log "building backend image ($PLATFORM)…"
   run docker buildx build --platform "$PLATFORM" -f Dockerfile \

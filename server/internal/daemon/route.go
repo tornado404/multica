@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/multica-ai/multica/server/pkg/httptransport"
 )
 
 // Route identifies which network path the daemon's server connections use.
@@ -84,10 +86,10 @@ func newRouteSelector(lanAddr, serverBaseURL string) *routeSelector {
 	}
 	if rs.lanAddr == "" {
 		rs.current.Store(RouteTunnel)
-		rs.tunnelTransport = cloneDefaultTransport()
+		rs.tunnelTransport = httptransport.CloneDefault()
 	} else {
 		rs.current.Store(RouteTunnel) // start on tunnel until LAN is confirmed
-		rs.tunnelTransport = cloneDefaultTransport()
+		rs.tunnelTransport = httptransport.CloneDefault()
 		rs.lanTransport = rs.buildLANTransport()
 	}
 	rs.routeChanges = newRouteChangeWatcher()
