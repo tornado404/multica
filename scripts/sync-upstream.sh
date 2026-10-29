@@ -139,6 +139,11 @@ if [[ "$SKIP_CLI" -eq 0 ]]; then
       local dest="$1"
       [[ -f "$dest" ]] && cp "$dest" "$dest.bak-$STAMP" && log "backed up → $dest.bak-$STAMP"
       cp "$NEW_CLI" "$dest" && log "installed → $dest"
+      # Overwriting a binary in place leaves a stale com.apple.provenance /
+      # signature pair; macOS then SIGKILLs it on launch (rc=137) with no
+      # message. Re-sign ad-hoc and drop the attributes so the copy runs.
+      xattr -c "$dest" 2>/dev/null || true
+      codesign --force --sign - "$dest" >/dev/null 2>&1 || warn "codesign of $dest failed — verify it runs"
     }
     # Desktop runtime copy
     mkdir -p "$HOME/.multica/bin"
