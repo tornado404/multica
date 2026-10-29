@@ -1,7 +1,7 @@
 // Package agent provides a unified interface for executing prompts via
 // coding agents (Claude Code, CodeBuddy, Codex, Copilot, OpenCode, DevEco Code,
 // OpenClaw, Hermes, Pi, Oh-My-Pi, Cursor, Kimi, Reasonix, Kiro, Antigravity, Qoder,
-// Trae, Grok, Qwen Code, QwenPaw, MiniMax Code, Meta Muse Code, ZCode). It
+// Trae, Grok, Qwen Code, QwenPaw, MiniMax Code, Meta Muse Code). It
 // mirrors the happy-cli AgentBackend pattern, translated to idiomatic Go.
 package agent
 
@@ -327,7 +327,7 @@ type Result struct {
 
 // Config configures a Backend instance.
 type Config struct {
-	ExecutablePath string            // path to CLI binary (claude, codebuddy, codex, copilot, opencode, codearts, openclaw, hermes, pi, cursor, kimi, reasonix, dsh, kiro-cli, agy, qodercli, qoderclicn, traecli, grok, qwen, qwenpaw, mcode, muse, dim, zeroclaw, zcode)
+	ExecutablePath string            // path to CLI binary (claude, codebuddy, codex, copilot, opencode, codearts, openclaw, hermes, pi, cursor, kimi, reasonix, dsh, kiro-cli, agy, qodercli, qoderclicn, traecli, grok, qwen, qwenpaw, mcode, muse, dim, zeroclaw)
 	CLIVersion     string            // detected version paired with ExecutablePath; vendor-specific usage semantics also require BuiltinRuntime
 	Env            map[string]string // extra environment variables
 	Logger         *slog.Logger
@@ -362,7 +362,7 @@ type Config struct {
 }
 
 // New creates a Backend for the given agent type.
-// Supported types: "claude", "codebuddy", "codex", "copilot", "opencode", "codearts", "deveco", "openclaw", "hermes", "pi", "cursor", "kimi", "reasonix", "dsh", "kiro", "antigravity", "qoder", "qoderclicn", "traecli", "grok", "qwen", "qwenpaw", "mcode", "muse", "zcode".
+// Supported types: "claude", "codebuddy", "codex", "copilot", "opencode", "codearts", "deveco", "openclaw", "hermes", "pi", "cursor", "kimi", "reasonix", "dsh", "kiro", "antigravity", "qoder", "qoderclicn", "traecli", "grok", "qwen", "qwenpaw", "mcode", "muse".
 //
 // SupportedTypes is the canonical whitelist of agent types eligible to back a
 // custom runtime profile. It MUST stay in lockstep with the
@@ -372,8 +372,7 @@ type Config struct {
 // migration 242 to add qoderclicn, migration 253 to add qwenpaw,
 // migration 254 to add reasonix, migration 313 to add dsh, migration 342 to
 // add mcode, migration 370 to add dim, migration 403 to add zeroclaw,
-// migration 441 to add codearts, and migration 420 to add zcode): a
-// custom runtime profile may only
+// migration 441 to add codearts): a custom runtime profile may only
 // be based on a backend Multica officially supports.
 // qoder and qoderclicn share the same ACP backend; keeping both provider keys
 // lets the daemon auto-detect and register the international and China-region
@@ -410,7 +409,6 @@ var SupportedTypes = []string{
 	"dim",
 	"devin",
 	"zeroclaw",
-	"zcode",
 }
 
 // IsSupportedType reports whether agentType is in the SupportedTypes whitelist.
@@ -520,8 +518,6 @@ func New(agentType string, cfg Config) (Backend, error) {
 		return &museBackend{cfg: cfg}, nil
 	case "zeroclaw":
 		return &zeroclawBackend{cfg: cfg}, nil
-	case "zcode":
-		return &zcodeStreamBackend{cfg: cfg}, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type: %q (supported: %s)", agentType, strings.Join(SupportedTypes, ", "))
 	}
@@ -571,7 +567,6 @@ var launchHeaders = map[string]string{
 	"mcode":       "mcode acp",
 	"muse":        "muse serve (msp)",
 	"zeroclaw":    "zeroclaw acp",
-	"zcode":       "zcode --prompt --stream-json",
 }
 
 // LaunchHeader returns the user-visible launch skeleton for agentType, or an

@@ -1,14 +1,16 @@
 ---
 name: sync-upstream
-description: Sync this ZCode fork with upstream multica-ai/multica, rebuild the local Desktop GUI + daemon CLI, and redeploy the cloud self-host server. Use when asked to "update from upstream", "sync with the original repo", "pull in the new multica release", "update the self-host server", "check the auto-update", or after an upstream release/tag lands.
+description: Sync this fork with upstream multica-ai/multica, rebuild the local Desktop GUI + daemon CLI, and redeploy the cloud self-host server. Use when asked to "update from upstream", "sync with the original repo", "pull in the new multica release", "update the self-host server", "check the auto-update", or after an upstream release/tag lands.
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Sync fork with upstream + rebuild local Desktop/CLI + redeploy self-host
 
-This fork (`feat/zcode-app-runtime` on origin `tornado404/multica`) carries the
-ZCode runtime integration on top of `upstream` (`multica-ai/multica`).
+This fork branch on origin `tornado404/multica` carries a
+small set of local features on top of `upstream` (`multica-ai/multica`): the
+LAN direct route selector, the done-on-verified-delivery policy, and the
+self-host deploy tooling.
 Updating means: rebase the fork onto the new upstream tip, then rebuild and
 reinstall the two artifacts this machine runs — the `multica` daemon CLI and
 the Multica.app desktop bundle (which embeds its own copy of the CLI) — and
@@ -30,32 +32,23 @@ then re-run with `--skip-rebase` to finish verification/build/install.
 ## Conflict-resolution conventions
 
 Nearly every conflict is one of these shapes. Resolve in this order of
-preference: union > upstream > fork.
+preference: upstream > fork.
 
 1. **Runtime/provider lists** (SupportedTypes, launchHeaders, agents probes,
    `defaultAgentCommandNames`, i18n landing copy, docs tables, logo switch
-   cases): take the **union** — upstream's new runtimes (dsh, mcode, dim,
-   zeroclaw, …) plus `zcode`. Watch for:
+   cases): take upstream's list as-is — the fork no longer adds a runtime.
+   Watch for:
    - Go map literals and sorted `.txt` lists: duplicates are compile/logic
      errors — dedupe.
    - `New()`'s default error message: keep upstream's `strings.Join` form.
    - Landing-page copy counts ("N supported coding tools"): the count must
-     equal the list length after the union (recount, don't trust either side).
-   - Docs paragraphs that both sides rewrote: keep upstream's version and
-     append the fork's ZCode-specific sentences; drop duplicated lead-ins.
+     equal the list length (recount, don't trust either side).
 
-2. **Migration numbering** (the most common hard failure): the fork's
-   `server/migrations/<N>_runtime_profile_add_zcode.{up,down}.sql` must be
-   renumbered to **upstream_max + 1** whenever upstream has taken `N`. After
-   renaming:
-   - The `.up.sql` CHECK whitelist = upstream's *latest* whitelist + `zcode`
-     (copy the list from upstream's highest `*_runtime_profile_add_*` file).
-   - The `.down.sql` = upstream's latest whitelist unchanged.
-   - Update the migration-number comment in `server/pkg/agent/agent.go`
-     (SupportedTypes doc) and pin sets in
-     `server/pkg/agent/agent_supported_types_test.go`.
-   - Historical "renumber to NNN" fork commits become empty → `git rebase
-     --skip` them.
+2. **Migration numbering**: the fork no longer carries its own migration. If
+   one is added later, renumber it to **upstream_max + 1** whenever upstream
+   has taken `N`, and keep its CHECK whitelist equal to the latest upstream
+   `*_runtime_profile_add_*` whitelist plus the fork's additions. Historical
+   "renumber to NNN" fork commits may become empty → `git rebase --skip` them.
 
 3. **Upstream refactors of shared signatures**: upstream may change helpers
    the fork calls (e.g. `ListModels` now takes a `Command`, discovery
@@ -90,9 +83,7 @@ preference: union > upstream > fork.
 ## Cloud self-host deployment phase
 
 The cloud server (amd64, Docker Compose behind nginx on 127.0.0.1) runs the
-fork images only — the zcode runtime itself lives on the daemon host (this
-Mac), so preserving it needs nothing beyond building both images from the
-rebased branch. The server NEVER compiles; images are cross-built here and
+fork images only. The server NEVER compiles; images are cross-built here and
 shipped via `docker save | ssh docker load`.
 
 ```bash
@@ -148,5 +139,5 @@ after sleep:
   `NEEDS_MANUAL_SYNC`, or a skip reason).
 - Server-side `.env` (`~/multica/.env`) pins `MULTICA_BACKEND_IMAGE` /
   `MULTICA_WEB_IMAGE` to the local tags `multica-backend` / `multica-web` and
-  `MULTICA_IMAGE_TAG` to the deployed `<release>-zcode.<sha>`; business vars
+  `MULTICA_IMAGE_TAG` to the deployed `<release>-fork.<sha>`; business vars
   (FRONTEND_ORIGIN etc.) are edited on the server only.

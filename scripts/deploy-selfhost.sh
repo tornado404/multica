@@ -18,8 +18,8 @@ set -euo pipefail
 #                     roll back to the previous tag)
 #
 # Image tags are fork-local (no registry): multica-backend:<TAG> /
-# multica-web:<TAG> where TAG = <upstream-release>-zcode.<short-sha>
-# (e.g. v0.4.33-zcode.64e301d). Old tags are never pruned on the server, so
+# multica-web:<TAG> where TAG = <upstream-release>-fork.<short-sha>
+# (e.g. v0.6.4-fork.64e301d). Old tags are never pruned on the server, so
 # `--rollback` is always available.
 #
 # Configuration (environment):
@@ -31,7 +31,7 @@ set -euo pipefail
 # Usage:
 #   MULTICA_SSH_HOST=my-server bash scripts/deploy-selfhost.sh --init   # first deploy
 #   MULTICA_SSH_HOST=my-server bash scripts/deploy-selfhost.sh          # redeploy
-#   MULTICA_SSH_HOST=my-server bash scripts/deploy-selfhost.sh --tag v0.4.33-zcode.64e301d
+#   MULTICA_SSH_HOST=my-server bash scripts/deploy-selfhost.sh --tag v0.6.4-fork.64e301d
 #   MULTICA_SSH_HOST=my-server bash scripts/deploy-selfhost.sh --rollback
 #
 # Flags:
@@ -151,7 +151,7 @@ else
   if [[ -z "$TAG" ]]; then
     UPSTREAM_TAG="$(latest_upstream_tag HEAD)"
     [[ -n "$UPSTREAM_TAG" ]] || die "no v* release tag found — pass --tag explicitly"
-    TAG="${UPSTREAM_TAG}-zcode.$(git rev-parse --short HEAD)"
+    TAG="${UPSTREAM_TAG}-fork.$(git rev-parse --short HEAD)"
   fi
   log "target: branch=$(git branch --show-current) HEAD=$(git rev-parse --short HEAD) tag=$TAG platform=$PLATFORM"
   log "server: $SSH_HOST:$REMOTE_DIR"
@@ -160,7 +160,7 @@ fi
 # ---- build ------------------------------------------------------------------
 if [[ "$ROLLBACK" -eq 0 && "$SKIP_BUILD" -eq 0 ]]; then
   docker buildx version >/dev/null 2>&1 || die "docker buildx not available"
-  VERSION_ARG="${TAG%%-zcode.*}"
+  VERSION_ARG="${TAG%%-fork.*}"
   COMMIT_SHA="$(git rev-parse --short HEAD)"
   log "building backend image ($PLATFORM)…"
   run docker buildx build --platform "$PLATFORM" -f Dockerfile \

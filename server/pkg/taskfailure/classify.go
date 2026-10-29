@@ -295,8 +295,7 @@ func Classify(rawError string) Reason {
 			"timeout exceeded while awaiting",
 			// BigModel's transient transport failure surfaces as
 			// "[1234][网络错误，错误id …，请稍后重试。]" ("network error, retry
-			// later") — provider copy, retryable by its own advice. Observed
-			// live through the zcode app-server backend (2026-08-30).
+			// later") — provider copy, retryable by its own advice.
 			"网络错误",
 		):
 		return ReasonAgentProviderNetwork

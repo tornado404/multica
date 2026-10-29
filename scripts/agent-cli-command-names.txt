@@ -26,4 +26,3 @@ qwenpaw
 reasonix
 traecli
 zeroclaw
-zcode

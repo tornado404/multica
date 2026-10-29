@@ -11,7 +11,7 @@ set -euo pipefail
 #      upstream/main vs. LAST_SYNCED_TAG in the state file → exit if current
 #   2. sync-upstream.sh --base <tag> --skip-tests --skip-cli --skip-desktop
 #      (rebase + go build only; conflicts → exit 3)
-#   3. deploy-selfhost.sh --tag <tag>-zcode.<sha> --backup --auto-rollback
+#   3. deploy-selfhost.sh --tag <tag>-fork.<sha> --backup --auto-rollback
 #      (pg_dump pre-upgrade → build on Mac → ssh ship → compose up -d →
 #      health check → roll back to the previous tag if unhealthy)
 #   4. push the rebased branch to origin (the fork) with --force-with-lease —
@@ -116,7 +116,7 @@ derive_deploy_tag() {
   t="$(git tag --list 'v[0-9]*' --sort=-v:refname --merged HEAD 2>/dev/null | head -n 1 || true)"
   [[ -n "$t" ]] || t="$(git tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | head -n 1 || true)"
   [[ -n "$t" ]] || { log "no v* tag reachable from HEAD — cannot derive deploy tag"; return 1; }
-  printf '%s-zcode.%s' "$t" "$(git rev-parse --short HEAD)"
+  printf '%s-fork.%s' "$t" "$(git rev-parse --short HEAD)"
 }
 
 push_branch_to_fork() {
