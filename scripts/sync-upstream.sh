@@ -19,7 +19,7 @@ set -euo pipefail
 # Resolve the conflicts, `git rebase --continue`, then re-run with
 # --skip-rebase to finish the build/install phases. See
 # .agents/skills/sync-upstream/SKILL.md for the fork's conflict-resolution
-# conventions (union lists, migration renumbering).
+# conventions (upstream lists are authoritative; fork migrations stay above upstream).
 #
 # Usage:
 #   bash scripts/sync-upstream.sh [--base <ref>] [--skip-rebase] [--skip-tests]
@@ -87,10 +87,9 @@ Rebase stopped on a conflict. Resolve it, then:
   bash scripts/sync-upstream.sh --skip-rebase   # finish verify/build/install
 
 Fork conventions while resolving (details in .agents/skills/sync-upstream/SKILL.md):
-  - runtime/provider lists: union of upstream entries + zcode
-  - fork migrations must sit AFTER upstream's highest number (rename
-    server/migrations/<n>_runtime_profile_add_zcode.* to max+1 and refresh
-    the CHECK whitelist inside the .up.sql from upstream's latest)
+  - runtime/provider lists: take upstream's list as-is (the fork adds no runtime)
+  - if a fork migration is added later it must sit AFTER upstream's highest
+    number, with its CHECK whitelist equal to upstream's latest plus additions
 EOF
     exit 3
   fi
