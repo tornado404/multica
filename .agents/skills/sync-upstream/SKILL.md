@@ -60,10 +60,17 @@ preference: upstream > fork.
 - CLI installs to `~/.multica/bin/multica` (Desktop runtime copy) and to
   `$(realpath $(command -v multica))` — on this machine a brew Cellar
   binary that has been overwritten with fork builds (never `brew upgrade`).
-- Desktop is packaged unsigned/ad-hoc: `CSC_IDENTITY_AUTO_DISCOVERY=false
-  pnpm --filter @multica/desktop run package -- --mac --arm64` (this also
-  compiles the Go CLI into the bundle). Old app is kept as
-  `/Applications/Multica.app.bak-<version>`.
+  Overwriting in place invalidates the signature and macOS SIGKILLs the copy
+  (rc=137, no message); the script clears xattrs and re-signs ad-hoc after
+  every copy.
+- Desktop signing: default is ad-hoc, which changes the cdhash on every build
+  and therefore resets macOS TCC grants (Full Disk Access, Screen Recording).
+  Set `MULTICA_CODESIGN_IDENTITY=<cert name>` to sign with a stable identity
+  (a self-signed "Code Signing" certificate from Keychain Access is enough)
+  so permissions survive updates. Old app is kept as
+  `/Applications/Multica.app.bak-<version>`; delete those once the new build
+  is verified — duplicate bundles with the same bundle id but a different
+  cdhash are what makes macOS re-prompt or show duplicate TCC entries.
 - pnpm/node live under nvm; non-interactive shells need
   `PATH="$HOME/.nvm/versions/node/<latest>/bin:$PATH"`.
 - Daemons restart per profile — check for active agent tasks BEFORE
