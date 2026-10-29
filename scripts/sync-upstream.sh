@@ -174,7 +174,20 @@ if [[ "$SKIP_DESKTOP" -eq 0 ]]; then
   pnpm install --frozen-lockfile || pnpm install
   log "packaging Desktop (mac arm64, ad-hoc signature)…"
   # package.mjs compiles the matching Go CLI into the app automatically.
-  CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @multica/desktop run package -- --mac --arm64
+  #
+  # Ad-hoc signing (the default) gives every build a new cdhash, and macOS
+  # keys TCC grants (Full Disk Access, Screen Recording) to that identity —
+  # so each update re-asks for every permission. Set MULTICA_CODESIGN_IDENTITY
+  # to a stable certificate name (a self-signed "Code Signing" cert from
+  # Keychain Access is enough) to keep one identity across rebuilds.
+  if [[ -n "${MULTICA_CODESIGN_IDENTITY:-}" ]]; then
+    log "signing Desktop with $MULTICA_CODESIGN_IDENTITY…"
+    CSC_IDENTITY_AUTO_DISCOVERY=true CSC_NAME="$MULTICA_CODESIGN_IDENTITY" \
+      pnpm --filter @multica/desktop run package -- --mac --arm64
+  else
+    warn "MULTICA_CODESIGN_IDENTITY unset — ad-hoc signing; macOS will re-prompt for TCC permissions after this update"
+    CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @multica/desktop run package -- --mac --arm64
+  fi
 
   if [[ "$SKIP_INSTALL" -eq 0 ]]; then
     APP_SRC="$(find "$ROOT/apps/desktop/dist" -maxdepth 2 -name 'Multica.app' -type d -print -quit)"
