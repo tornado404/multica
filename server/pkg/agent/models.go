@@ -458,13 +458,6 @@ func ModelSelectionSupported(providerType string) bool {
 		// profile (`agents.<alias>.model_provider`) and nothing Multica sends
 		// can change it.
 		return false
-	case "zcode":
-		// ZCode has no command-line --model flag; the model is fixed by
-		// ~/.zcode/cli/config.json (`model.main`). Advertising a selectable
-		// picker would show a knob that silently does nothing, so opt out —
-		// the UI renders a disabled "Managed by runtime" field instead. The
-		// catalog returned by ListModels is display-only.
-		return false
 	default:
 		return true
 	}

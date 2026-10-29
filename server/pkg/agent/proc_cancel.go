@@ -14,7 +14,7 @@ import (
 // remains the hard backstop.
 //
 // This is the shared setup half of the cancellation pattern used by the
-// streaming backends (claude/opencode/zcode) and the zcode --json fallback: it
+// streaming backends (claude/opencode) and other subprocess protocol backends: it
 // guarantees cancellation reaches the whole process tree — the agent CLI plus
 // any tool subprocess it spawns — not just the direct child. A grandchild
 // holding the stdout pipe would otherwise survive cancellation, keeping the

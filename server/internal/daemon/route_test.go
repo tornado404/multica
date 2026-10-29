@@ -285,8 +285,11 @@ func TestRouteSelectorLANRequestKeepsOriginalHost(t *testing.T) {
 // the selector too, and that detaching restores the default transports.
 func TestSetRouteSelectorRoutesBundleClient(t *testing.T) {
 	c := NewClient("https://mc.dozoyen.com:40816")
-	if c.bundleClient.Transport != nil {
-		t.Fatal("expected nil bundle transport before selector is attached")
+	if _, ok := c.bundleClient.Transport.(*http.Transport); !ok {
+		t.Fatal("expected bundle client to start with a cloned default transport")
+	}
+	if _, ok := c.client.Transport.(*http.Transport); !ok {
+		t.Fatal("expected API client to start with a cloned default transport")
 	}
 
 	rs := newRouteSelector("192.168.31.201:8443", "https://mc.dozoyen.com:40816")
@@ -301,8 +304,8 @@ func TestSetRouteSelectorRoutesBundleClient(t *testing.T) {
 	}
 
 	c.SetRouteSelector(nil)
-	if c.bundleClient.Transport != nil {
-		t.Fatal("expected nil bundle transport after detach")
+	if _, ok := c.bundleClient.Transport.(*http.Transport); !ok {
+		t.Fatal("expected bundle client to restore a cloned default transport after detach")
 	}
 	if _, ok := c.client.Transport.(*routeRoundTripper); ok {
 		t.Fatal("expected client transport restored after detach")
