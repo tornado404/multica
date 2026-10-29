@@ -71,6 +71,25 @@ if [[ -n "${MULTICA_REMOTE_DIR:-}" ]]; then
     <string>$MULTICA_REMOTE_DIR</string>"
 fi
 
+# Baking the signing identity keeps unattended rebuilds on the same code
+# signature; without it every daily build reverts to ad-hoc and macOS resets
+# the app's TCC grants (Full Disk Access, Screen Recording).
+CODESIGN_BLOCK=""
+if [[ -n "${MULTICA_CODESIGN_IDENTITY:-}" ]]; then
+  CODESIGN_BLOCK="
+    <key>MULTICA_CODESIGN_IDENTITY</key>
+    <string>$MULTICA_CODESIGN_IDENTITY</string>"
+fi
+
+# The target platform is arm64 on this machine's server; losing it on a
+# reinstall would silently cross-build amd64 images.
+PLATFORM_BLOCK=""
+if [[ -n "${MULTICA_PLATFORM:-}" ]]; then
+  PLATFORM_BLOCK="
+    <key>MULTICA_PLATFORM</key>
+    <string>$MULTICA_PLATFORM</string>"
+fi
+
 LOCAL_ARG_BLOCK=""
 if [[ "$INCLUDE_LOCAL" -eq 1 ]]; then
   LOCAL_ARG_BLOCK="
@@ -117,7 +136,7 @@ cat > "$PLIST" <<EOF
   <key>EnvironmentVariables</key>
   <dict>
     <key>MULTICA_SSH_HOST</key>
-    <string>$SSH_HOST</string>$REMOTE_DIR_BLOCK
+    <string>$SSH_HOST</string>$REMOTE_DIR_BLOCK$CODESIGN_BLOCK$PLATFORM_BLOCK
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
