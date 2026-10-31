@@ -297,7 +297,8 @@
     "discard_dialog_title": "放弃未保存的修改？",
     "discard_dialog_description": "当前 tab 有未保存的修改，离开会丢弃这些修改。",
     "discard_keep": "继续编辑",
-    "discard_confirm": "放弃修改"
+    "discard_confirm": "放弃修改",
+    "jev_questions": "Jev 问题"
   },
   "creation_studio": {
     "title": "创建智能体",
@@ -833,6 +834,19 @@
       "started_prefix": "{{when}}启动",
       "dispatched_prefix": "{{when}}派发",
       "queued_prefix": "{{when}}排队"
+    },
+    "jev_questions": {
+      "questions_label": "问题",
+      "placeholder": "{\"next_action\": {\"type\": \"choice\", \"instructions\": \"What should happen next?\", \"criteria\": {\"observe\": \"No action needed yet\", \"advance\": \"Move to the next stage\"}}}",
+      "invalid_json": "JSON 无效",
+      "state_hint": "任务的派发文本会作为 state 发送给 Jev，每个问题都基于它判定。",
+      "saved_toast": "Jev 问题已保存",
+      "save_failed_toast": "保存 Jev 问题失败",
+      "escalation_label": "图片升级目标智能体",
+      "escalation_unset": "未配置",
+      "escalation_hint": "涉及图片的任务会取消 jev 判定并以 mention 方式派给该智能体；jev 不接收图片信息。",
+      "escalation_clear": "清除",
+      "escalation_missing": "已配置的智能体不存在或不可用。"
     }
   },
   "char_counter": {

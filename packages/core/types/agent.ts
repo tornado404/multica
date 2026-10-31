@@ -139,6 +139,7 @@ export const RUNTIME_PROFILE_PROTOCOL_FAMILIES = [
   "muse",
   "devin",
   "zeroclaw",
+  "jev",
 ] as const;
 
 export type RuntimeProtocolFamily =

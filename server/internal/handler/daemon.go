@@ -2955,6 +2955,12 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			"error_runtime_access_denied", http.StatusForbidden, "private runtime does not permit task agent",
 		)
 	}
+	// Jev agents never receive image information. A claimed task that involves
+	// images is settled here — escalated to the configured LLM agent, or
+	// cancelled with a visible note — and never delivered to the daemon.
+	if failure := h.guardJevImageEscalation(r, task, runtime, agent); failure != nil {
+		return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, failure
+	}
 	useSkillRefs := requestHasClientCapability(r, protocol.DaemonCapabilitySkillBundlesV1)
 	// A daemon older than the multica-platform merge assembles a brief that
 	// still names the built-ins this server stopped shipping. It cannot be

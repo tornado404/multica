@@ -309,7 +309,8 @@
     "discard_dialog_title": "Discard unsaved changes?",
     "discard_dialog_description": "You have unsaved changes in this tab. Leaving now will discard them.",
     "discard_keep": "Keep editing",
-    "discard_confirm": "Discard changes"
+    "discard_confirm": "Discard changes",
+    "jev_questions": "Jev questions"
   },
   "creation_studio": {
     "title": "Create an agent",
@@ -854,6 +855,19 @@
       "started_prefix": "Started {{when}}",
       "dispatched_prefix": "Dispatched {{when}}",
       "queued_prefix": "Queued {{when}}"
+    },
+    "jev_questions": {
+      "questions_label": "Questions",
+      "placeholder": "{\"next_action\": {\"type\": \"choice\", \"instructions\": \"What should happen next?\", \"criteria\": {\"observe\": \"No action needed yet\", \"advance\": \"Move to the next stage\"}}}",
+      "invalid_json": "Invalid JSON",
+      "state_hint": "The task's dispatch text is sent to Jev as state; each question is judged over it.",
+      "saved_toast": "Jev questions saved",
+      "save_failed_toast": "Failed to save Jev questions",
+      "escalation_label": "Image escalation agent",
+      "escalation_unset": "Not configured",
+      "escalation_hint": "Tasks involving images are cancelled and re-dispatched to this agent as a mention; jev never receives image data.",
+      "escalation_clear": "Clear",
+      "escalation_missing": "The configured agent no longer exists or is unavailable."
     }
   },
   "char_counter": {

@@ -2572,6 +2572,14 @@ func (d *Daemon) probeBuiltinRuntime(ctx context.Context, name string, entry Age
 		// which sends a reader looking for the wrong problem.
 		transientReason string
 	)
+	// Jev has no CLI to resolve or version: it is the HTTP API the backend
+	// calls per run, and a per-run failure is the honest signal for
+	// unreachability or bad credentials. Registering unconditionally keeps the
+	// probe loop (which runs `--version` on a binary this provider has none
+	// of) out of its path.
+	if name == "jev" {
+		return "v1", "", builtinProbeOK
+	}
 probeLoop:
 	for attempts < runtimeVersionProbeAttempts {
 		if attempts > 0 {
@@ -6568,6 +6576,7 @@ var runtimeDisplayNameOverrides = map[string]string{
 	"muse":       "Muse Code",
 	"zcode":      "ZCode",
 	"zeroclaw":   "ZeroClaw",
+	"jev":        "Jev",
 }
 
 func init() {
@@ -7938,11 +7947,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			"task_id", task.ID, "runtime_id", task.RuntimeID,
 			"provider", provider, "command_path", customSpec.path,
 			"fixed_args", len(profileFixedArgs))
-	} else if ok {
-		// Built-in provider: self-heal a pinned executable path that an in-place
-		// upgrade deleted (MUL-4486). Only reached when no custom profile owns
-		// the launch, so a custom runtime's path is never second-guessed and a
-		// custom-only host pays no wasted re-resolution.
+	} else if ok && provider != "jev" {
+		// Built-in provider: self-heal a pinned executable path that an
+		// in-place upgrade deleted (MUL-4486). Only reached when no custom
+		// profile owns the launch, so a custom runtime's path is never
+		// second-guessed and a custom-only host pays no wasted re-resolution.
+		// Jev is skipped: its entry carries no executable by design — the
+		// backend is an HTTP call, not a process launch.
 		var resolveErr error
 		entry, resolvedVersion, resolveErr = d.resolveAgentEntryForLaunch(prepareCtx, provider, entry)
 		if resolveErr != nil {
@@ -8999,6 +9010,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		OpenclawModelOverride:  openclawModelOverride,
 		ClaudeSettingsPath:     env.ClaudeSettingsPath,
 		QwenpawWorkspace:       env.QwenpawWorkspace,
+	}
+	if provider == "jev" {
+		execOpts.JevQuestions = jevQuestionsFromRuntimeConfig(task.Agent)
 	}
 	// Some providers do not reliably load the per-task runtime config files we
 	// write into the task workdir:

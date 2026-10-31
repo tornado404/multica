@@ -304,6 +304,12 @@ func BuildPrompt(task Task, provider string, options ...PromptOption) string {
 		apply(&opts)
 	}
 	body := buildPromptBody(task, provider)
+	// Jev consumes the prompt as System One request state: per-turn context
+	// blocks (repo/worktree pointers, CLI reading instructions) would corrupt
+	// the judgment input, so jev gets the body alone.
+	if provider == "jev" {
+		return body
+	}
 	// Run-scoped context is appended, never prepended: everything ahead of it
 	// is stable across runs of a resumed session, and appending keeps it after
 	// the cached prefix (MUL-5377).
@@ -317,6 +323,9 @@ func BuildPrompt(task Task, provider string, options ...PromptOption) string {
 }
 
 func buildPromptBody(task Task, provider string) string {
+	if provider == "jev" {
+		return buildJevStatePrompt(task)
+	}
 	if task.WakeupID != "" {
 		var b strings.Builder
 		fmt.Fprintf(&b, "You are running as a local coding agent for a Multica workspace.\n\nYour assigned issue ID is: %s\n\n[WAKEUP]\n%s\n\n", task.IssueID, task.HandoffNote)

@@ -297,7 +297,8 @@
     "discard_dialog_title": "저장하지 않은 변경사항을 버릴까요?",
     "discard_dialog_description": "이 탭에 저장하지 않은 변경사항이 있습니다. 지금 나가면 변경사항이 사라집니다.",
     "discard_keep": "계속 편집",
-    "discard_confirm": "변경사항 버리기"
+    "discard_confirm": "변경사항 버리기",
+    "jev_questions": "Jev 질문"
   },
   "create_dialog": {
     "title_create": "에이전트 만들기",
@@ -683,6 +684,19 @@
       "started_prefix": "{{when}} 시작됨",
       "dispatched_prefix": "{{when}} 디스패치됨",
       "queued_prefix": "{{when}} 대기 시작"
+    },
+    "jev_questions": {
+      "questions_label": "질문",
+      "placeholder": "{\"next_action\": {\"type\": \"choice\", \"instructions\": \"What should happen next?\", \"criteria\": {\"observe\": \"No action needed yet\", \"advance\": \"Move to the next stage\"}}}",
+      "invalid_json": "잘못된 JSON",
+      "state_hint": "태스크 디스패치 텍스트는 state로 Jev에 전송되며, 각 질문은 이를 기준으로 판단됩니다.",
+      "saved_toast": "Jev 질문이 저장되었습니다",
+      "save_failed_toast": "Jev 질문 저장 실패",
+      "escalation_label": "이미지 에스컬레이션 대상 에이전트",
+      "escalation_unset": "구성되지 않음",
+      "escalation_hint": "이미지가 포함된 작업은 jev 판정을 취소하고 이 에이전트로 mention 방식으로 재위임합니다. jev는 이미지 데이터를 받지 않습니다.",
+      "escalation_clear": "지우기",
+      "escalation_missing": "구성된 에이전트가 존재하지 않거나 사용할 수 없습니다."
     }
   },
   "char_counter": {

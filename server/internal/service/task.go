@@ -7803,13 +7803,26 @@ func commentEventFields(c db.Comment) map[string]any {
 }
 
 func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID pgtype.UUID, content, commentType string, parentID, sourceTaskID pgtype.UUID) {
+	// Result comments are best-effort side effects; callers have no recovery
+	// path, so failures stay logged.
+	if _, err := s.CreateAgentComment(ctx, issueID, agentID, content, commentType, parentID, sourceTaskID); err != nil {
+		slog.Warn("agent comment not persisted", "issue_id", util.UUIDToString(issueID), "agent_id", util.UUIDToString(agentID), "error", err)
+	}
+}
+
+// CreateAgentComment persists an agent-authored comment, publishes the
+// comment-created event and un-resolves the thread when replying into a
+// resolved one. Unlike createAgentComment it returns the persisted row so a
+// caller can bind follow-up work to the comment (e.g. enqueueing a run whose
+// trigger is this comment); errors are the caller's to handle.
+func (s *TaskService) CreateAgentComment(ctx context.Context, issueID, agentID pgtype.UUID, content, commentType string, parentID, sourceTaskID pgtype.UUID) (db.Comment, error) {
 	if content == "" {
-		return
+		return db.Comment{}, fmt.Errorf("agent comment content is empty")
 	}
 	// Look up issue to get workspace ID for mention expansion and broadcasting.
 	issue, err := s.Queries.GetIssue(ctx, issueID)
 	if err != nil {
-		return
+		return db.Comment{}, fmt.Errorf("load issue: %w", err)
 	}
 	// Resolve the thread root for thread-level side effects without overwriting
 	// parentID. The stored parent_id must remain the exact comment being replied
@@ -7835,7 +7848,7 @@ func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID p
 		SourceTaskID: sourceTaskID,
 	})
 	if err != nil {
-		return
+		return db.Comment{}, fmt.Errorf("create comment: %w", err)
 	}
 	comment := created.Comment()
 	commentFields := commentEventFields(comment)
@@ -7853,6 +7866,7 @@ func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID p
 		},
 	})
 	s.AutoUnresolveThreadOnReply(ctx, rootComment, util.UUIDToString(issue.WorkspaceID), "agent", util.UUIDToString(agentID), sourceTaskID)
+	return comment, nil
 }
 
 // AutoUnresolveThreadOnReply clears resolved_at on the thread root when a

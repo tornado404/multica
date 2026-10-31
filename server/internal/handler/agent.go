@@ -1548,6 +1548,17 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if runtime.Provider == "jev" {
+		raw, _ := json.Marshal(req.RuntimeConfig)
+		if err := agent.ValidateJevQuestionsRuntimeConfig(raw); err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
+		if err := h.validateJevEscalationTarget(r.Context(), wsUUID, raw, nil); err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
+	}
 	// thinking_level validation: fixed-enum providers reject unknown literals;
 	// dynamic-catalog providers (Codex/OpenCode) reject malformed tokens here.
 	// Pi has a fixed token universe and a daemon-discovered per-model subset.
@@ -2178,6 +2189,21 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 				overrides.serviceTier = *req.ServiceTier
 			}
 			if err := overrides.validate(); err != nil {
+				writeError(w, 400, err.Error())
+				return
+			}
+		}
+		if provider == "jev" && runtimeChange {
+			raw := existing.RuntimeConfig
+			if req.RuntimeConfig != nil {
+				raw, _ = json.Marshal(req.RuntimeConfig)
+			}
+			if err := agent.ValidateJevQuestionsRuntimeConfig(raw); err != nil {
+				writeError(w, 400, err.Error())
+				return
+			}
+			selfID := existing.ID
+			if err := h.validateJevEscalationTarget(r.Context(), existing.WorkspaceID, raw, &selfID); err != nil {
 				writeError(w, 400, err.Error())
 				return
 			}

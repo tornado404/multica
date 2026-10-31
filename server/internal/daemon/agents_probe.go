@@ -353,6 +353,11 @@ var probeAgentCLIs = func() map[string]AgentEntry {
 			}
 		}
 	}
+	// Jev (TypeSafe System One) is a pure HTTP judgment capability with no CLI
+	// to discover: any daemon that can reach the API can host it, so it
+	// registers unconditionally instead of going through probe(). Reachability
+	// and credentials surface per-run, as failed task results.
+	agents["jev"] = AgentEntry{Command: "jev"}
 	return agents
 }
 

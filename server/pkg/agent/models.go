@@ -353,6 +353,16 @@ func ListModels(ctx context.Context, providerType string, runtimeCmd Command) (C
 		return cachedDiscovery(discoveryCacheKey(providerType, runtimeCmd), func() (Catalog, error) {
 			return discoverZcodeModels(ctx, runtimeCmd)
 		})
+	case "jev":
+		// Jev's model is a TypeSafe System One model alias resolved server-side
+		// by the API, not by a local CLI, so there is nothing to discover and
+		// no command to run. The flagship alias ships as the static catalog;
+		// manual entry still works for other aliases (e.g. preview models).
+		// Thinking stays nil: judgment models have no reasoning-effort control.
+		return Catalog{Models: []Model{{
+			ID:    JevDefaultModel,
+			Label: "Jev (latest)",
+		}}}, nil
 	default:
 		return Catalog{}, fmt.Errorf("unknown agent type: %q", providerType)
 	}

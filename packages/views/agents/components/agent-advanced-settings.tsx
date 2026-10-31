@@ -38,6 +38,7 @@ import { AgentMcpTab } from "./tabs/agent-mcp-tab";
 import { IntegrationsTab } from "./tabs/integrations-tab";
 import { QoderAgentTab } from "./tabs/qoder-agent-tab";
 import { RuntimeConfigTab } from "./tabs/runtime-config-tab";
+import { JevQuestionsTab } from "./tabs/jev-questions-tab";
 import { AgentDetailInspector } from "./agent-detail-inspector";
 import { AgentAccessSettings } from "./agent-access-settings";
 import { useT } from "../../i18n";
@@ -60,6 +61,7 @@ type SectionLabelKey =
   | "custom_args"
   | "runtime_config"
   | "qoder_agent"
+  | "jev_questions"
   | "skills"
   | "mcp_config"
   | "composio_mcp"
@@ -167,18 +169,27 @@ export function AgentAdvancedSettings({
     () =>
       SETTINGS_SECTIONS.filter((item) => {
         if (qoderRuntime) return item.id !== "env" && item.id !== "custom_args";
+        // Jev spawns no CLI, so CLI-launch args would save and silently do
+        // nothing — the questions spec is the whole launch surface.
+        if (item.id === "custom_args" && runtime?.provider === "jev")
+          return false;
         // Env is the only section backed by a secret-bearing endpoint.
         // GET/PUT /api/agents/{id}/env admits the agent owner or a workspace
         // owner/admin (MUL-5438) — the same rule `canEdit` encodes — so
         // showing it to anyone else guarantees a 403 on "Reveal & edit".
         // The server stays the boundary; this only removes a dead entry point.
         if (item.id === "env") return canEdit;
-        if (item.id === "runtime_config") return runtime?.provider === "openclaw";
+        if (item.id === "runtime_config")
+          return (
+            runtime?.provider === "openclaw" || runtime?.provider === "jev"
+          );
         return true;
       }).map((item) =>
         qoderRuntime && item.id === "runtime_config"
           ? { ...item, labelKey: "qoder_agent" as const }
-          : item,
+          : item.id === "runtime_config" && runtime?.provider === "jev"
+            ? { ...item, labelKey: "jev_questions" as const }
+            : item,
       ),
     [canEdit, qoderRuntime, runtime?.provider],
   );
@@ -340,6 +351,13 @@ export function AgentAdvancedSettings({
                     (qoderRuntime ? (
                       <QoderAgentTab
                         canEdit={canEdit}
+                        key={agent.id}
+                        agent={agent}
+                        onSave={save}
+                        onDirtyChange={setDirty}
+                      />
+                    ) : runtime?.provider === "jev" ? (
+                      <JevQuestionsTab
                         key={agent.id}
                         agent={agent}
                         onSave={save}

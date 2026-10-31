@@ -297,7 +297,8 @@
     "discard_dialog_title": "放棄未儲存的修改？",
     "discard_dialog_description": "當前 tab 有未儲存的修改，離開會丟棄這些修改。",
     "discard_keep": "繼續編輯",
-    "discard_confirm": "放棄修改"
+    "discard_confirm": "放棄修改",
+    "jev_questions": "Jev 問題"
   },
   "creation_studio": {
     "title": "建立 AI 代理",
@@ -833,6 +834,19 @@
       "started_prefix": "{{when}}啟動",
       "dispatched_prefix": "{{when}}派發",
       "queued_prefix": "{{when}}排隊"
+    },
+    "jev_questions": {
+      "questions_label": "問題",
+      "placeholder": "{\"next_action\": {\"type\": \"choice\", \"instructions\": \"What should happen next?\", \"criteria\": {\"observe\": \"No action needed yet\", \"advance\": \"Move to the next stage\"}}}",
+      "invalid_json": "JSON 無效",
+      "state_hint": "任務的派發文字會作為 state 傳送給 Jev，每個問題都基於它判定。",
+      "saved_toast": "Jev 問題已儲存",
+      "save_failed_toast": "儲存 Jev 問題失敗",
+      "escalation_label": "圖片升級目標智能體",
+      "escalation_unset": "未設定",
+      "escalation_hint": "涉及圖片的任務會取消 jev 判定並以 mention 方式派給該智能體；jev 不接收圖片資訊。",
+      "escalation_clear": "清除",
+      "escalation_missing": "已設定的智能體不存在或不可用。"
     }
   },
   "char_counter": {

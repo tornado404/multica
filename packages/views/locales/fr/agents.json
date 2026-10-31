@@ -309,7 +309,8 @@
     "discard_dialog_title": "Abandonner les modifications non enregistrées ?",
     "discard_dialog_description": "Cet onglet contient des modifications non enregistrées. Les quitter maintenant les abandonnera.",
     "discard_keep": "Continuer à modifier",
-    "discard_confirm": "Abandonner les modifications"
+    "discard_confirm": "Abandonner les modifications",
+    "jev_questions": "Questions Jev"
   },
   "creation_studio": {
     "title": "Créer un agent",
@@ -854,6 +855,19 @@
       "started_prefix": "Démarrée {{when}}",
       "dispatched_prefix": "Envoyée {{when}}",
       "queued_prefix": "Mise en file d'attente {{when}}"
+    },
+    "jev_questions": {
+      "questions_label": "Questions",
+      "placeholder": "{\"next_action\": {\"type\": \"choice\", \"instructions\": \"What should happen next?\", \"criteria\": {\"observe\": \"No action needed yet\", \"advance\": \"Move to the next stage\"}}}",
+      "invalid_json": "JSON invalide",
+      "state_hint": "Le texte de dispatch de la tâche est envoyé à Jev comme state ; chaque question est évaluée à partir de celui-ci.",
+      "saved_toast": "Questions Jev enregistrées",
+      "save_failed_toast": "Échec de l'enregistrement des questions Jev",
+      "escalation_label": "Agent d'escalade pour les images",
+      "escalation_unset": "Non configuré",
+      "escalation_hint": "Les tâches impliquant des images annulent le jugement jev et sont réattribuées à cet agent par mention ; jev ne reçoit jamais de données d'image.",
+      "escalation_clear": "Effacer",
+      "escalation_missing": "L'agent configuré n'existe plus ou est indisponible."
     }
   },
   "char_counter": {
