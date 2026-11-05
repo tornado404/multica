@@ -46,6 +46,20 @@ func dshProbeFixture(t *testing.T, body string, manifest bool) string {
 
 const dshProbeOKFrame = `printf '%s\n' '{"v":1,"type":"probe","runtime":"dsh","plugin_version":"test","protocol_version":1}'`
 
+// The budget has to cover a Desktop profile's cold boot — the app's Electron
+// binary starts before --probe can answer, which took over 16s on this machine
+// — while still fitting inside the daemon's 45s startup window. Guarding the
+// range keeps a rebase or a "tighten the timeout" change from silently
+// restoring the 15s cutoff that skipped a healthy runtime.
+func TestDshProbeTimeoutCoversSlowDesktopStartup(t *testing.T) {
+	if dshProbeTimeout < 30*time.Second {
+		t.Fatalf("dshProbeTimeout = %s, want at least 30s: a healthy DSH profile took over 16s to answer --probe", dshProbeTimeout)
+	}
+	if dshProbeTimeout > 45*time.Second {
+		t.Fatalf("dshProbeTimeout = %s, want at most 45s: the probe must finish inside the daemon's 45s startup window", dshProbeTimeout)
+	}
+}
+
 // Only a profile that is genuinely absent may be installed or condemned. Every
 // other failure mode is a statement about this instant, and treating them alike
 // is what let a momentary failure during a DSH upgrade demote a working runtime
