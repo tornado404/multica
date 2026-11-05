@@ -415,11 +415,10 @@ const (
 // dshProbeTimeout bounds one `--probe`.
 //
 // The healthy path boots a whole DSH process — on a Desktop install that means
-// starting the app's Electron binary as node — and then prints one line. Five
-// seconds was too thin for that on a cold VM, and cutting a slow-but-healthy
-// probe short reports it as unusable. This is generous instead, because the
-// cost is paid only by a probe that has nothing to say, and it stays well
-// inside the daemon's own 45s startup window.
+// starting the app's Electron binary as node — and then prints one line. A
+// healthy local profile took over 16 seconds to emit that line, so a 15-second
+// cutoff reported it as unusable. Allow up to 40 seconds while staying inside
+// the daemon's own 45s startup window.
 //
 // A manifest that does not name the runtime returns before this budget.
 // Probing that state hangs, and the manifest is enough to call it missing.
@@ -427,7 +426,7 @@ const (
 // produces no frame.
 //
 // A var so tests can shrink it instead of waiting out a real timeout.
-var dshProbeTimeout = 15 * time.Second
+var dshProbeTimeout = 40 * time.Second
 
 // parseDshProbeFrame returns the first decodable probe frame in the output.
 func parseDshProbeFrame(output string) (dshProbeFrame, bool) {
