@@ -2104,12 +2104,6 @@ func (d *Daemon) run(ctx context.Context, healthLn net.Listener) error {
 		logFields = append(logFields, "profile", d.cfg.Profile)
 	}
 	d.logger.Info("starting daemon", logFields...)
-	// Sweep orphaned ZCode provider credential snapshots left by a prior
-	// crash/SIGKILL (prepareZcodeRuntimeEnv writes 0600 files under
-	// $TMPDIR/multica-zcode-providers-*; normal exits remove them in defer).
-	if n := agent.CleanupStaleZcodeProviderSnapshots(); n > 0 {
-		d.logger.Info("removed stale ZCode provider credential snapshots", "count", n)
-	}
 	d.logger.Debug("daemon config resolved",
 		"daemon_id", d.cfg.DaemonID,
 		"device_name", d.cfg.DeviceName,
@@ -6574,7 +6568,6 @@ var runtimeDisplayNameOverrides = map[string]string{
 	"qwenpaw":    "QwenPaw",
 	"mcode":      "MiniMax Code",
 	"muse":       "Muse Code",
-	"zcode":      "ZCode",
 	"zeroclaw":   "ZeroClaw",
 	"jev":        "Jev",
 }

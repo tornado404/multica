@@ -164,7 +164,6 @@ var (
 		"mcode":         "mcode",
 		"muse":          "muse",
 		"zeroclaw":      "zeroclaw",
-		"zcode":         "zcode",
 		"jev":           "jev",
 		"multica_agent": "multica_agent",
 		"openclaw":      "openclaw",
